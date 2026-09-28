@@ -1,0 +1,19 @@
+{
+  "name": "dev-in-situ",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Click any element in your browser, describe the change, and let your local AI coding agent edit the source.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "build": "node scripts/setup.mjs build",
+    "start": "node daemon/dist/index.js",
+    "test": "node scripts/setup.mjs test",
+    "typecheck": "node scripts/setup.mjs typecheck",
+    "check": "node scripts/setup.mjs typecheck test build"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

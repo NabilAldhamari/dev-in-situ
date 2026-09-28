@@ -1,0 +1,28 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent
+      placeholder: claude, codex, gemini, custom...
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: OS, browser and version, Node version
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Daemon output or console errors
+      render: shell

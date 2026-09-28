@@ -1,0 +1,30 @@
+{
+  "name": "@dev-in-situ/daemon",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Local bridge that hands in-page edit requests to any AI coding agent CLI.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "dev-in-situ": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "node --import tsx --test --test-concurrency=1 \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*.log
+.dev-in-situ/
+.idea/
+.vscode/
+.tokensave/
+.claude/
+.DS_Store
+Thumbs.db
