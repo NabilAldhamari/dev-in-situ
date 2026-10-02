@@ -34,6 +34,8 @@ The extension never runs anything itself. It talks only to the daemon on your ma
 
 You need Node 22+ and at least one agent CLI on your `PATH`, e.g. `claude`, `codex` or `gemini`.
 
+**From a release (no build needed for the extension):** download `dev-in-situ-extension-<version>.zip` from the [latest release](https://github.com/NabilAldhamari/dev-in-situ/releases/latest) and unzip it. In step 1 below, load that folder instead of `extension/dist`. The daemon runs with `npx dev-in-situ` once it is published to npm, or from a clone as shown here.
+
 ```bash
 git clone https://github.com/NabilAldhamari/dev-in-situ.git && cd dev-in-situ
 npm run setup      # installs and builds everything
@@ -151,6 +153,16 @@ extension/  MV3 extension: content/ (picker, popover, stack detection), backgrou
 ```
 
 CI runs typecheck, tests and a build on Linux, Windows and macOS for every push and pull request. The built extension is uploaded as a workflow artifact.
+
+### Releasing
+
+```bash
+npm run version -- 0.4.0   # updates every version field
+# move the Unreleased notes in CHANGELOG.md under the new version, commit, then:
+git tag v0.4.0 && git push origin main v0.4.0
+```
+
+The tag triggers the Release workflow, which runs the checks and publishes the extension zip and the changelog notes as a GitHub Release.
 
 ## Contributing
 

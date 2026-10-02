@@ -4,11 +4,20 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
   - package-ecosystem: npm
     directory: /daemon
     schedule:
       interval: weekly
+    groups:
+      daemon-minor-patch:
+        update-types: [minor, patch]
   - package-ecosystem: npm
     directory: /extension
     schedule:
       interval: weekly
+    groups:
+      extension-minor-patch:
+        update-types: [minor, patch]

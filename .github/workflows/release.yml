@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm run setup install
+      - run: npm run check
+      - name: Verify tag matches version
+        run: test "v$(node -p "require('./extension/manifest.json').version")" = "${GITHUB_REF_NAME}"
+      - name: Package extension
+        run: |
+          cd extension/dist
+          zip -r "../../dev-in-situ-extension-${GITHUB_REF_NAME}.zip" .
+      - name: Extract release notes
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: notes.md
+          files: dev-in-situ-extension-*.zip

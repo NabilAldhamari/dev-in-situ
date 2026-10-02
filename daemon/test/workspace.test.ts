@@ -27,7 +27,9 @@ test('listDirs lists visible folders and spots projects', () => {
   assert.deepEqual(listing.dirs, ['a', 'b']);
   assert.equal(listing.isProject, true);
   assert.equal(listing.parent, path.dirname(path.resolve(dir)));
-  assert.ok(listDirs(undefined).dirs.length > 0);
+  const home = listDirs(undefined);
+  if (process.platform === 'win32') assert.ok(home.dirs.length > 0);
+  else assert.equal(home.path, path.resolve(os.homedir()));
 });
 
 test('ChangeWatcher bumps the stamp on edits but not in ignored folders', async () => {
@@ -35,14 +37,17 @@ test('ChangeWatcher bumps the stamp on edits but not in ignored folders', async 
   fs.mkdirSync(path.join(dir, 'node_modules'));
   const watcher = new ChangeWatcher();
   try {
-    assert.equal(watcher.stamp(dir), 0);
+    assert.notEqual(watcher.stamp(dir), null);
+    // macOS reports events from before the watch started, so settle first and compare against a baseline.
+    await new Promise((r) => setTimeout(r, 500));
+    const base = watcher.stamp(dir) ?? 0;
     fs.writeFileSync(path.join(dir, 'node_modules', 'x.js'), '1');
-    await new Promise((r) => setTimeout(r, 300));
-    assert.equal(watcher.stamp(dir), 0);
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(watcher.stamp(dir), base);
     fs.writeFileSync(path.join(dir, 'index.html'), '<p>hi</p>');
     const deadline = Date.now() + 3000;
-    while (watcher.stamp(dir) === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
-    assert.ok((watcher.stamp(dir) ?? 0) > 0);
+    while ((watcher.stamp(dir) ?? 0) === base && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    assert.ok((watcher.stamp(dir) ?? 0) > base);
   } finally {
     watcher.close();
   }
