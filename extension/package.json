@@ -11,7 +11,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json"
   },
   "devDependencies": {
-    "@types/chrome": "^0.0.287",
+    "@types/chrome": "^0.3.4",
     "@types/node": "^26.6.2",
     "jsdom": "^25.0.1",
     "typescript": "^5.7.2",
