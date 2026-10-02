@@ -1,7 +1,6 @@
 {
-  "name": "@dev-in-situ/daemon",
-  "version": "0.2.0",
-  "private": true,
+  "name": "dev-in-situ",
+  "version": "0.3.0",
   "description": "Local bridge that hands in-page edit requests to any AI coding agent CLI.",
   "license": "MIT",
   "type": "module",
@@ -13,7 +12,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.test.json",
-    "test": "node --import tsx --test --test-concurrency=1 \"test/*.test.ts\""
+    "test": "node --import tsx --test --test-concurrency=1 \"test/*.test.ts\"",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "express": "^4.21.2"
@@ -26,5 +26,21 @@
   },
   "engines": {
     "node": ">=22"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NabilAldhamari/dev-in-situ.git",
+    "directory": "daemon"
+  },
+  "keywords": [
+    "ai",
+    "coding-agent",
+    "browser-extension",
+    "claude-code",
+    "codex",
+    "gemini"
+  ],
+  "files": [
+    "dist"
+  ]
 }

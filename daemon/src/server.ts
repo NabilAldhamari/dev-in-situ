@@ -188,7 +188,13 @@ export function createServer(deps: ServerDeps) {
     const id = randomUUID();
     log.open(id);
     const previous = queues.get(key) ?? Promise.resolve();
-    const next = previous.then(() => execute(id, key, body)).catch(() => {});
+    const next = previous
+      .then(() => execute(id, key, body))
+      .catch((err: Error) => {
+        running.delete(id);
+        log.emit(id, 'error', err.message);
+        log.emit(id, 'done', 'Failed', { exitCode: null });
+      });
     queues.set(key, next);
     void next.finally(() => queues.get(key) === next && queues.delete(key));
     res.status(202).json({ dispatchId: id, sessionKey: key, resumed: Boolean(store.session(body.agent, key)) });

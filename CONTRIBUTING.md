@@ -29,6 +29,7 @@ scripts/    setup and build helpers shared by both packages
 - Add or update tests for behavior changes.
 - Keep PRs focused. One fix or feature per PR is easier to review.
 - Update the README if you change user-facing behavior, config fields or presets.
+- Add a line under **Unreleased** in `CHANGELOG.md`.
 
 ## Adding an agent preset
 

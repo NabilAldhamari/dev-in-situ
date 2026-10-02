@@ -5,7 +5,7 @@ import path from 'node:path';
 import { type AgentConfig, PRESETS } from './agents.js';
 
 export const NAME = 'dev-in-situ';
-export const VERSION = '0.2.0';
+export const VERSION = (JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 export const HOST = '127.0.0.1';
 export const PORT = Number.parseInt(process.env.DEV_IN_SITU_PORT ?? '4141', 10);
 export const HOME_DIR = process.env.DEV_IN_SITU_HOME ?? path.join(os.homedir(), '.dev-in-situ');
