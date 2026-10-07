@@ -126,6 +126,7 @@ describe('picking elements', () => {
     setup({}, 100).toggle();
     click(el('#hero'), { ctrlKey: true });
     key('keyup', 'Control');
+    window.dispatchEvent(new WheelEvent('wheel', { deltaY: 100 }));
     window.dispatchEvent(new Event('scroll'));
     await new Promise((r) => setTimeout(r, 150));
     expect(controller.picking).toBe(true);
@@ -134,6 +135,17 @@ describe('picking elements', () => {
     await new Promise((r) => setTimeout(r, 150));
     await settle();
     expect(chips()).toEqual(['#hero', '#buy']);
+  });
+
+  it('scrolls the page makes on its own do not stop the pick from finishing', async () => {
+    setup({}, 100).toggle();
+    click(el('#hero'), { ctrlKey: true });
+    key('keyup', 'Control');
+    window.dispatchEvent(new Event('scroll'));
+    await new Promise((r) => setTimeout(r, 150));
+    await settle();
+    expect(controller.picking).toBe(false);
+    expect(chips()).toEqual(['#hero']);
   });
 
   it('pressing Ctrl again within the grace period keeps picking', async () => {
@@ -146,6 +158,7 @@ describe('picking elements', () => {
   });
 
   it('a Mac Ctrl+click (context menu) adds to the selection and never opens the menu', async () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
     setup().toggle();
     const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, ctrlKey: true });
     el('#card').dispatchEvent(menu);
@@ -153,8 +166,17 @@ describe('picking elements', () => {
     expect(controller.pending).toEqual([el('#card')]);
     const plain = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
     el('#hero').dispatchEvent(plain);
-    expect(plain.defaultPrevented).toBe(true);
+    expect(plain.defaultPrevented).toBe(false);
     expect(controller.pending).toEqual([el('#card')]);
+  });
+
+  it('leaves the context menu alone on other platforms, so Inspect still works', () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32');
+    setup().toggle();
+    const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, ctrlKey: true, button: 2 });
+    el('#card').dispatchEvent(menu);
+    expect(menu.defaultPrevented).toBe(false);
+    expect(controller.pending).toEqual([]);
   });
 
   it(`caps the selection at ${MAX_SELECTION} elements with a toast`, () => {

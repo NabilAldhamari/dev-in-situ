@@ -58,6 +58,14 @@ describe('detectTheme', () => {
     expect(detectTheme(document, fakeWindow(false))).toBe('light');
   });
 
+  it('uses a full-screen wrapper when html and body are transparent', () => {
+    document.body.innerHTML = '<div id="root" style="background-color: rgb(15, 15, 20)"><p id="mid">x</p></div>';
+    (document as unknown as { elementFromPoint: () => Element }).elementFromPoint = () => document.querySelector('#mid')!;
+    expect(siteTheme(document, window)).toBe('dark');
+    delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint;
+    document.body.innerHTML = '';
+  });
+
   it('lets an explicit preference win', () => {
     document.body.style.backgroundColor = 'rgb(0, 0, 0)';
     expect(detectTheme(document, fakeWindow(true), 'light')).toBe('light');

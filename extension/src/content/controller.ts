@@ -22,6 +22,7 @@ export interface ControllerDeps {
 export const MAX_SELECTION = 20;
 
 const isModifier = (key: string) => key === 'Control' || key === 'Meta';
+const isMac = () => /mac/i.test(navigator.platform);
 
 const elementAt = (x: number, y: number): Element | null =>
   typeof document.elementFromPoint === 'function' ? document.elementFromPoint(x, y) : null;
@@ -41,6 +42,9 @@ export class Controller {
   private finishTimer: ReturnType<typeof setTimeout> | null = null;
   private opening: Promise<Panel> | null = null;
   private themeTimer: ReturnType<typeof setTimeout> | null = null;
+  private observer: MutationObserver | null = null;
+  /** When the user last scrolled on purpose (wheel, touch or keys), to tell their scrolls from the page's own. */
+  private userScrollAt = 0;
   private hovered: Element | null = null;
   private point: { x: number; y: number } | null = null;
   private frame = 0;
@@ -68,19 +72,26 @@ export class Controller {
       },
     });
     this.media?.addEventListener?.('change', () => this.applyTheme());
-    // Sites that switch their own dark mode usually do it with a class or attribute on html or body.
-    if (typeof MutationObserver === 'function') {
-      const observer = new MutationObserver(() => {
-        if (this.themeTimer) return;
-        this.themeTimer = setTimeout(() => {
-          this.themeTimer = null;
-          this.applyTheme();
-        }, 150);
-      });
-      const options = { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-mode', 'data-color-mode', 'data-bs-theme'] };
-      observer.observe(document.documentElement, options);
-      if (document.body) observer.observe(document.body, options);
+  }
+
+  /** Follows sites that switch their own dark mode with a class or attribute on html or body, only while our UI is showing. */
+  private watchTheme(on: boolean): void {
+    if (!on) {
+      this.observer?.disconnect();
+      this.observer = null;
+      return;
     }
+    if (this.observer || typeof MutationObserver !== 'function') return;
+    this.observer = new MutationObserver(() => {
+      if (this.themeTimer) return;
+      this.themeTimer = setTimeout(() => {
+        this.themeTimer = null;
+        this.applyTheme();
+      }, 150);
+    });
+    const options = { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-mode', 'data-color-mode', 'data-bs-theme'] };
+    this.observer.observe(document.documentElement, options);
+    if (document.body) this.observer.observe(document.body, options);
   }
 
   async init(): Promise<void> {
@@ -127,6 +138,7 @@ export class Controller {
     this.multi = false;
     this.wasMinimized = this.panel?.minimized ?? false;
     this.picking = true;
+    this.watchTheme(true);
     this.applyTheme();
     this.panel?.setMinimized(true);
     this.setMarks(this.pending);
@@ -139,6 +151,7 @@ export class Controller {
     this.picking = false;
     this.multi = false;
     this.clearFinishTimer();
+    if (!this.panel) this.watchTheme(false);
     this.hovered = null;
     this.point = null;
     if (this.frame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.frame);
@@ -187,7 +200,7 @@ export class Controller {
 
   private updateStatus(): void {
     const n = this.pending.length;
-    const mod = /mac/i.test(navigator.platform) ? '⌘' : 'Ctrl';
+    const mod = isMac() ? '⌘' : 'Ctrl';
     this.highlighter.setStatus(
       n ? `${n} selected · release ${mod} or press Enter to finish · Esc to cancel` : `Click an element · hold ${mod} to select several · Esc to cancel`,
     );
@@ -250,11 +263,13 @@ export class Controller {
         this.refreshHover();
       },
     ],
+    ...(['wheel', 'touchmove'] as const).map((type) => [type, () => void (this.userScrollAt = Date.now())] as [string, (e: Event) => void]),
     [
       'scroll',
       () => {
-        // Scrolling right after letting go of Ctrl/⌘ means the user is looking for more elements.
-        this.clearFinishTimer();
+        // A user scroll right after letting go of Ctrl/⌘ means they are looking for more elements.
+        // Scrolls the page makes on its own (carousels, animations) don't count.
+        if (Date.now() - this.userScrollAt < 500) this.clearFinishTimer();
         this.scheduleHover();
       },
     ],
@@ -262,11 +277,12 @@ export class Controller {
       'contextmenu',
       (e) => {
         const m = e as MouseEvent;
-        if (this.owns(m.target)) return;
+        // On a Mac, Ctrl+click opens the context menu instead of clicking; treat it as a Ctrl-click.
+        // Other context menus (right-click → Inspect) stay available.
+        if (this.owns(m.target) || !isMac() || !m.ctrlKey || m.button !== 0) return;
         m.preventDefault();
         m.stopPropagation();
-        // On a Mac, Ctrl+click opens the context menu instead of clicking.
-        const el = m.ctrlKey ? this.elementForEvent(m) : null;
+        const el = this.elementForEvent(m);
         if (!el) return;
         this.multi = true;
         this.clearFinishTimer();
@@ -307,6 +323,7 @@ export class Controller {
       'keydown',
       (e) => {
         const k = e as KeyboardEvent;
+        if (['PageDown', 'PageUp', 'ArrowDown', 'ArrowUp', ' ', 'Home', 'End'].includes(k.key)) this.userScrollAt = Date.now();
         if (isModifier(k.key)) this.clearFinishTimer();
         if (k.key === 'Escape') {
           k.preventDefault();
@@ -405,6 +422,7 @@ export class Controller {
       onClose: (p) => {
         p.close();
         if (this.panel === p) this.panel = null;
+        if (!this.picking) this.watchTheme(false);
         this.group = [];
         this.setMarks([]);
       },
@@ -433,6 +451,7 @@ export class Controller {
       notify: (title, message) => this.deps.notify(title, message),
     });
     this.panel = panel;
+    this.watchTheme(true);
     this.applyTheme();
     this.setMarks(this.group);
     await panel.open(targets, this.settings ?? DEFAULT_SETTINGS, this.detect());

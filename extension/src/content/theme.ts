@@ -50,10 +50,20 @@ export function toRgba(value: string, doc: Document = document): Rgba | null {
  * Returns null when the page leaves it to the system (`color-scheme: light dark`).
  */
 export function siteTheme(doc: Document, win: Window): Theme | null {
-  for (const el of [doc.body, doc.documentElement]) {
-    if (!el) continue;
+  const themeOf = (el: Element | null): Theme | null => {
+    if (!el) return null;
     const color = toRgba(win.getComputedStyle(el).backgroundColor, doc);
-    if (color && color[3] >= 0.5) return luminance(color) < 0.4 ? 'dark' : 'light';
+    return color && color[3] >= 0.5 ? (luminance(color) < 0.4 ? 'dark' : 'light') : null;
+  };
+  for (const el of [doc.body, doc.documentElement]) {
+    const theme = themeOf(el);
+    if (theme) return theme;
+  }
+  // Many apps leave html and body transparent and paint a full-screen wrapper such as #root.
+  const center = typeof doc.elementFromPoint === 'function' ? doc.elementFromPoint(win.innerWidth / 2, win.innerHeight / 2) : null;
+  for (let el = center; el && el !== doc.body && el !== doc.documentElement; el = el.parentElement) {
+    const theme = themeOf(el);
+    if (theme) return theme;
   }
   const scheme = win.getComputedStyle(doc.documentElement).colorScheme ?? '';
   const dark = /\bdark\b/.test(scheme);
