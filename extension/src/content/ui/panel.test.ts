@@ -178,6 +178,51 @@ describe('Panel chat bar', () => {
     expect(q('dot').dataset.state).toBe('bad');
   });
 
+  it('shows only the first error of a run as a toast', async () => {
+    const { streams, log } = await openPanel();
+    type('x');
+    press('Enter');
+    await flush();
+    streams[0]!.push({ event: { seq: 1, level: 'error', message: 'first' } });
+    streams[0]!.push({ event: { seq: 2, level: 'error', message: 'second' } });
+    streams[0]!.push({ event: { seq: 3, level: 'done', message: 'Failed', exitCode: 1 } });
+    expect(log.toasts).toEqual([['error', 'first', undefined]]);
+    expect(Array.from(q('log').querySelectorAll('[data-level="error"]')).map((e) => e.textContent)).toEqual(['first', 'second']);
+  });
+
+  it('toasts a failure that came without an error event', async () => {
+    const { streams, log } = await openPanel();
+    type('x');
+    press('Enter');
+    await flush();
+    streams[0]!.push({ event: { seq: 1, level: 'done', message: 'Failed', exitCode: 2 } });
+    expect(log.toasts).toEqual([['error', 'Failed', undefined]]);
+  });
+
+  it('stopping a run says so quietly, without an error or a notification', async () => {
+    const { streams, log } = await openPanel();
+    type('x');
+    press('Enter');
+    await flush();
+    q('stop').click();
+    await flush();
+    streams[0]!.push({ event: { seq: 1, level: 'error', message: 'Cancelled.' } });
+    streams[0]!.push({ event: { seq: 2, level: 'done', message: 'Failed', exitCode: null } });
+    expect(log.toasts).toEqual([['info', 'Stopped.', undefined]]);
+    expect(log.notifications).toEqual([]);
+    expect(q('dot').dataset.state).toBe('ok');
+  });
+
+  it('a terminal run reports where it opened, not a reply', async () => {
+    const { streams, log } = await openPanel({ settings: { mode: 'terminal' } });
+    type('x');
+    press('Enter');
+    await flush();
+    streams[0]!.push({ event: { seq: 1, level: 'done', message: 'Continue in the terminal window.', exitCode: 0 } });
+    expect(log.toasts).toEqual([['info', 'Continue in the terminal window.', undefined]]);
+    expect(log.notifications).toEqual([]);
+  });
+
   it('minimizes after sending when that option is on, and flags the reply as unread', async () => {
     const { panel, streams, log } = await openPanel({ settings: { collapseOnSend: true } });
     type('x');

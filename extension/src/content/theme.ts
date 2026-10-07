@@ -20,14 +20,46 @@ export function luminance([r, g, b]: Rgba): number {
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 }
 
-/** The theme the page itself paints, from the first mostly opaque background of body or html. */
+let probe: CanvasRenderingContext2D | null | undefined;
+
+/** Converts any CSS color (oklch(), lab(), color(), named…) to rgba by painting it, when canvas is available. */
+export function toRgba(value: string, doc: Document = document): Rgba | null {
+  const direct = parseColor(value);
+  if (direct) return direct;
+  if (probe === undefined) {
+    try {
+      const canvas = doc.createElement('canvas');
+      canvas.width = canvas.height = 1;
+      probe = canvas.getContext('2d', { willReadFrequently: true });
+    } catch {
+      probe = null;
+    }
+  }
+  if (!probe) return null;
+  probe.clearRect(0, 0, 1, 1);
+  probe.fillStyle = 'rgba(0, 0, 0, 0)';
+  probe.fillStyle = value;
+  probe.fillRect(0, 0, 1, 1);
+  const [r, g, b, a] = probe.getImageData(0, 0, 1, 1).data;
+  return [r ?? 0, g ?? 0, b ?? 0, (a ?? 0) / 255];
+}
+
+/**
+ * The theme the page itself paints: the first mostly opaque background of body or html.
+ * With no background at all, the browser's canvas shows, which is light unless the page opts into dark.
+ * Returns null when the page leaves it to the system (`color-scheme: light dark`).
+ */
 export function siteTheme(doc: Document, win: Window): Theme | null {
   for (const el of [doc.body, doc.documentElement]) {
     if (!el) continue;
-    const color = parseColor(win.getComputedStyle(el).backgroundColor);
+    const color = toRgba(win.getComputedStyle(el).backgroundColor, doc);
     if (color && color[3] >= 0.5) return luminance(color) < 0.4 ? 'dark' : 'light';
   }
-  return null;
+  const scheme = win.getComputedStyle(doc.documentElement).colorScheme ?? '';
+  const dark = /\bdark\b/.test(scheme);
+  const light = /\blight\b/.test(scheme);
+  if (dark && light) return null;
+  return dark ? 'dark' : 'light';
 }
 
 export function systemTheme(win: Window): Theme {

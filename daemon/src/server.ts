@@ -77,7 +77,7 @@ export function parseDispatch(body: unknown, config: Config): DispatchBody {
   for (const key of ['origin', 'url', 'workspacePath'] as const) {
     if (!text(b[key])) throw new Error(`${key} is required`);
   }
-  const listed = Array.isArray(b.targets) ? b.targets.slice(0, MAX_TARGETS).map(parseTarget) : [parseTarget(b)];
+  const listed = Array.isArray(b.targets) && b.targets.length ? b.targets.slice(0, MAX_TARGETS).map(parseTarget) : [parseTarget(b)];
   const targets = listed.filter((t): t is DispatchTarget => t !== null);
   if (!targets.length) throw new Error('selector is required');
   const first = targets[0]!;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { detectTheme, luminance, parseColor, siteTheme, systemTheme } from './theme.js';
+import { detectTheme, luminance, parseColor, siteTheme, systemTheme, toRgba } from './theme.js';
 
 const fakeWindow = (dark: boolean) => ({ matchMedia: () => ({ matches: dark }), getComputedStyle: window.getComputedStyle.bind(window) }) as unknown as Window;
 
@@ -18,6 +18,13 @@ describe('parseColor', () => {
   });
 });
 
+describe('toRgba', () => {
+  it('uses the direct parse for rgb strings and gives up without canvas support', () => {
+    expect(toRgba('rgb(4, 5, 6)')).toEqual([4, 5, 6, 1]);
+    expect(toRgba('oklch(0.2 0 0)')).toBeNull();
+  });
+});
+
 describe('luminance', () => {
   it('is 0 for black and 1 for white', () => {
     expect(luminance([0, 0, 0, 1])).toBe(0);
@@ -33,11 +40,20 @@ describe('detectTheme', () => {
     expect(siteTheme(document, window)).toBe('light');
   });
 
-  it('falls back to the html background, then the system preference', () => {
+  it('falls back to the html background', () => {
     document.body.style.backgroundColor = 'rgba(0, 0, 0, 0)';
     document.documentElement.style.backgroundColor = 'rgb(0, 0, 0)';
     expect(detectTheme(document, fakeWindow(false))).toBe('dark');
-    document.documentElement.style.backgroundColor = 'transparent';
+  });
+
+  it('treats an unstyled page as the light canvas, even on a dark system', () => {
+    expect(detectTheme(document, fakeWindow(true))).toBe('light');
+  });
+
+  it('follows color-scheme on unstyled pages, and the system when the page supports both', () => {
+    document.documentElement.style.colorScheme = 'dark';
+    expect(detectTheme(document, fakeWindow(false))).toBe('dark');
+    document.documentElement.style.colorScheme = 'light dark';
     expect(detectTheme(document, fakeWindow(true))).toBe('dark');
     expect(detectTheme(document, fakeWindow(false))).toBe('light');
   });

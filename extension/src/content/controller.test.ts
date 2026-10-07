@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, type Settings } from '../shared/types.js';
 import { fakeBridge, flush, openShadowRoots, restoreShadowRoots, rootOf } from '../test/helpers.js';
-import { Controller, RESTORE } from './controller.js';
+import { Controller, MAX_SELECTION, RESTORE } from './controller.js';
 
 let controller: Controller;
 let fake: ReturnType<typeof fakeBridge>;
 let notified: [string, string][];
 
-function setup(settings: Partial<Settings> = {}) {
+function setup(settings: Partial<Settings> = {}, releaseGraceMs = 0) {
   fake = fakeBridge();
   notified = [];
   controller = new Controller({
@@ -15,6 +15,7 @@ function setup(settings: Partial<Settings> = {}) {
     loadSettings: async () => ({ ...DEFAULT_SETTINGS, collapseOnSend: false, ...settings }),
     notify: (title, message) => void notified.push([title, message]),
     ask: () => null,
+    releaseGraceMs,
   });
   return controller;
 }
@@ -121,6 +122,50 @@ describe('picking elements', () => {
     expect(controller.marks).toEqual([]);
   });
 
+  it('scrolling right after letting go of Ctrl keeps picking, so more elements can be added', async () => {
+    setup({}, 100).toggle();
+    click(el('#hero'), { ctrlKey: true });
+    key('keyup', 'Control');
+    window.dispatchEvent(new Event('scroll'));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(controller.picking).toBe(true);
+    click(el('#buy'), { ctrlKey: true });
+    key('keyup', 'Control');
+    await new Promise((r) => setTimeout(r, 150));
+    await settle();
+    expect(chips()).toEqual(['#hero', '#buy']);
+  });
+
+  it('pressing Ctrl again within the grace period keeps picking', async () => {
+    setup({}, 100).toggle();
+    click(el('#hero'), { ctrlKey: true });
+    key('keyup', 'Control');
+    key('keydown', 'Control');
+    await new Promise((r) => setTimeout(r, 150));
+    expect(controller.picking).toBe(true);
+  });
+
+  it('a Mac Ctrl+click (context menu) adds to the selection and never opens the menu', async () => {
+    setup().toggle();
+    const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, ctrlKey: true });
+    el('#card').dispatchEvent(menu);
+    expect(menu.defaultPrevented).toBe(true);
+    expect(controller.pending).toEqual([el('#card')]);
+    const plain = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    el('#hero').dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(true);
+    expect(controller.pending).toEqual([el('#card')]);
+  });
+
+  it(`caps the selection at ${MAX_SELECTION} elements with a toast`, () => {
+    document.body.innerHTML = Array.from({ length: MAX_SELECTION + 1 }, (_, i) => `<p id="p${i}">${i}</p>`).join('');
+    setup().toggle();
+    for (let i = 0; i <= MAX_SELECTION; i++) click(el(`#p${i}`), { ctrlKey: true });
+    expect(controller.pending).toHaveLength(MAX_SELECTION);
+    const toasts = Array.from(rootOf('dev-in-situ-toasts').querySelectorAll('.text')).map((t) => t.textContent);
+    expect(toasts).toEqual([`You can select up to ${MAX_SELECTION} elements at once.`]);
+  });
+
   it('releasing Ctrl before any Ctrl-click does not finish', async () => {
     setup().toggle();
     key('keyup', 'Control');
@@ -208,6 +253,38 @@ describe('the chat bar and its selection', () => {
     await settle();
     expect(chips()).toEqual(['#hero', '#card']);
     expect(controller.marks).toEqual([el('#hero'), el('#card')]);
+  });
+
+  it('cancelling a pick that started from the minimized pill leaves the bar minimized without outlines', async () => {
+    await openWithTwo();
+    controller.panel!.setMinimized(true);
+    controller.toggle();
+    click(el('#buy'), { ctrlKey: true });
+    key('keydown', 'Escape');
+    await settle();
+    expect(controller.panel!.minimized).toBe(true);
+    expect(controller.marks).toEqual([]);
+  });
+
+  it('opening the bar from its pill while picking abandons the pick and restores the outlines', async () => {
+    await openWithTwo();
+    ref('add').click();
+    click(el('#buy'), { ctrlKey: true });
+    ref('pill').click();
+    expect(controller.picking).toBe(false);
+    expect(controller.marks).toEqual([el('#hero'), el('#card')]);
+    key('keydown', 'Escape');
+    expect(controller.marks).toEqual([el('#hero'), el('#card')]);
+  });
+
+  it('a second pick while the bar is still opening reuses the same bar', async () => {
+    setup().toggle();
+    click(el('#hero'));
+    controller.toggle();
+    click(el('#card'));
+    await settle();
+    expect(document.querySelectorAll('dev-in-situ-panel')).toHaveLength(1);
+    expect(chips()).toEqual(['#card']);
   });
 
   it('removing a chip drops that element and its outline', async () => {

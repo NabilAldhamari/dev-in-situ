@@ -77,7 +77,7 @@ before(async () => {
     path.join(home, 'config.json'),
     JSON.stringify({ defaultAgent: 'fake', timeoutMinutes: 1, agents: { fake: { command: process.execPath, background: [agentScript, '{prompt}'], output: 'text' } } }),
   );
-  daemon = spawn(process.execPath, [daemonEntry], { env: { ...process.env, DEV_IN_SITU_HOME: home, DEV_IN_SITU_PORT: String(daemonPort) }, stdio: 'pipe' });
+  daemon = spawn(process.execPath, [daemonEntry], { env: { ...process.env, DEV_IN_SITU_HOME: home, DEV_IN_SITU_PORT: String(daemonPort) }, stdio: 'ignore' });
   await waitFor(() => fs.existsSync(path.join(home, 'token')), 'daemon token');
   const token = fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
 
@@ -157,6 +157,8 @@ test('Ctrl-click selects several elements, one chat bar sends them all, toast an
   await page.waitForFunction(() => document.querySelector('dev-in-situ-panel'));
   await page.waitForTimeout(500);
   await shot(page, '2-chat-bar-open');
+  // A white page gets the light bar (the host's default is dark, so this proves detection ran).
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('dev-in-situ-panel')).colorScheme), 'light');
 
   await typeAndSend(page, 'align these');
   await waitFor(() => fs.existsSync(promptLog) && fs.readFileSync(promptLog, 'utf8').includes('====='), 'agent run');
@@ -220,9 +222,13 @@ test('the chat bar takes on the dark theme of a dark site', async () => {
   await shot(page, '5-dark-site');
   const scheme = await page.evaluate(() => getComputedStyle(document.querySelector('dev-in-situ-panel')).colorScheme);
   assert.equal(scheme, 'dark');
-  // Escape minimizes to the pill; the outline goes away with it.
+  // Escape minimizes to the pill, which is much narrower than the open bar.
+  const width = () => page.evaluate(() => document.querySelector('dev-in-situ-panel').getBoundingClientRect().width);
+  const open = await width();
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
   await shot(page, '6-dark-minimized');
+  const pill = await width();
+  assert.ok(pill < open / 2, `pill ${pill}px should be much narrower than the bar ${open}px`);
   await page.close();
 });

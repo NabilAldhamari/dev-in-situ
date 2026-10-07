@@ -14,7 +14,12 @@ export interface ControllerDeps {
   notify(title: string, message: string): void;
   /** Asks the page's main world for stack or component info. */
   ask<T>(kind: 'page' | 'component', target?: Element): T | null;
+  /** How long after Ctrl/⌘ is released the pick finishes, so a quick scroll or re-press can continue it. */
+  releaseGraceMs?: number;
 }
+
+/** The most elements one chat can be about; the daemon accepts the same number. */
+export const MAX_SELECTION = 20;
 
 const isModifier = (key: string) => key === 'Control' || key === 'Meta';
 
@@ -32,6 +37,10 @@ export class Controller {
   pending: Element[] = [];
   picking = false;
   private multi = false;
+  private wasMinimized = false;
+  private finishTimer: ReturnType<typeof setTimeout> | null = null;
+  private opening: Promise<Panel> | null = null;
+  private themeTimer: ReturnType<typeof setTimeout> | null = null;
   private hovered: Element | null = null;
   private point: { x: number; y: number } | null = null;
   private frame = 0;
@@ -59,6 +68,19 @@ export class Controller {
       },
     });
     this.media?.addEventListener?.('change', () => this.applyTheme());
+    // Sites that switch their own dark mode usually do it with a class or attribute on html or body.
+    if (typeof MutationObserver === 'function') {
+      const observer = new MutationObserver(() => {
+        if (this.themeTimer) return;
+        this.themeTimer = setTimeout(() => {
+          this.themeTimer = null;
+          this.applyTheme();
+        }, 150);
+      });
+      const options = { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-mode', 'data-color-mode', 'data-bs-theme'] };
+      observer.observe(document.documentElement, options);
+      if (document.body) observer.observe(document.body, options);
+    }
   }
 
   async init(): Promise<void> {
@@ -103,6 +125,7 @@ export class Controller {
     if (this.picking) return;
     this.pending = add ? [...this.group] : [];
     this.multi = false;
+    this.wasMinimized = this.panel?.minimized ?? false;
     this.picking = true;
     this.applyTheme();
     this.panel?.setMinimized(true);
@@ -115,6 +138,7 @@ export class Controller {
   private stopPicking(): void {
     this.picking = false;
     this.multi = false;
+    this.clearFinishTimer();
     this.hovered = null;
     this.point = null;
     if (this.frame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.frame);
@@ -129,8 +153,25 @@ export class Controller {
     if (!this.picking) return;
     this.pending = [];
     this.stopPicking();
-    if (this.panel) this.panel.setMinimized(false);
-    else this.setMarks([]);
+    this.restorePanel();
+  }
+
+  /** Puts the chat bar and its outlines back the way they were before picking started. */
+  private restorePanel(): void {
+    const panel = this.panel;
+    if (!panel) return this.setMarks([]);
+    if (this.wasMinimized) {
+      panel.setMinimized(true);
+      return this.setMarks([]);
+    }
+    panel.setMinimized(false);
+    this.resolveGroup();
+    this.setMarks(this.group);
+  }
+
+  private clearFinishTimer(): void {
+    if (this.finishTimer) clearTimeout(this.finishTimer);
+    this.finishTimer = null;
   }
 
   /** Commits the picked elements as the selection and opens the chat bar for them. */
@@ -139,11 +180,7 @@ export class Controller {
     const picked = this.pending.filter((el) => el.isConnected);
     this.pending = [];
     this.stopPicking();
-    if (!picked.length) {
-      if (this.panel) this.panel.setMinimized(false);
-      else this.setMarks([]);
-      return;
-    }
+    if (!picked.length) return this.restorePanel();
     this.group = picked;
     await this.showPanel();
   }
@@ -185,12 +222,23 @@ export class Controller {
     return e.target === root && (e.clientX >= root.clientWidth || e.clientY >= root.clientHeight);
   }
 
-  private togglePending(el: Element): void {
+  /** Adds `el` to the pick, or removes it if it is already there. Returns false when the selection is full. */
+  private togglePending(el: Element): boolean {
     const index = this.pending.indexOf(el);
     if (index >= 0) this.pending.splice(index, 1);
-    else this.pending.push(el);
+    else if (this.pending.length >= MAX_SELECTION) {
+      this.toaster.show('info', `You can select up to ${MAX_SELECTION} elements at once.`);
+      return false;
+    } else this.pending.push(el);
     this.setMarks(this.pending);
     this.updateStatus();
+    return true;
+  }
+
+  private elementForEvent(m: MouseEvent): Element | null {
+    const under = m.clientX || m.clientY ? elementAt(m.clientX, m.clientY) : null;
+    const el = under && !this.owns(under) ? under : (this.hovered ?? (m.target as Element));
+    return el instanceof Element && !this.owns(el) ? el : null;
   }
 
   private readonly listeners: [string, (e: Event) => void][] = [
@@ -202,7 +250,29 @@ export class Controller {
         this.refreshHover();
       },
     ],
-    ['scroll', () => this.scheduleHover()],
+    [
+      'scroll',
+      () => {
+        // Scrolling right after letting go of Ctrl/⌘ means the user is looking for more elements.
+        this.clearFinishTimer();
+        this.scheduleHover();
+      },
+    ],
+    [
+      'contextmenu',
+      (e) => {
+        const m = e as MouseEvent;
+        if (this.owns(m.target)) return;
+        m.preventDefault();
+        m.stopPropagation();
+        // On a Mac, Ctrl+click opens the context menu instead of clicking.
+        const el = m.ctrlKey ? this.elementForEvent(m) : null;
+        if (!el) return;
+        this.multi = true;
+        this.clearFinishTimer();
+        this.togglePending(el);
+      },
+    ],
     ...(['mousedown', 'mouseup', 'pointerdown', 'pointerup'] as const).map(
       (type) =>
         [
@@ -221,15 +291,15 @@ export class Controller {
         if (this.owns(m.target) || this.onScrollbar(m)) return;
         m.preventDefault();
         m.stopPropagation();
-        const under = m.clientX || m.clientY ? elementAt(m.clientX, m.clientY) : null;
-        const el = under && !this.owns(under) ? under : (this.hovered ?? (m.target as Element));
-        if (!(el instanceof Element) || this.owns(el)) return;
+        const el = this.elementForEvent(m);
+        if (!el) return;
+        this.clearFinishTimer();
         if (m.ctrlKey || m.metaKey) {
           this.multi = true;
           this.togglePending(el);
           return;
         }
-        if (!this.pending.includes(el)) this.pending.push(el);
+        if (!this.pending.includes(el) && !this.togglePending(el)) return;
         void this.finishPicking();
       },
     ],
@@ -237,6 +307,7 @@ export class Controller {
       'keydown',
       (e) => {
         const k = e as KeyboardEvent;
+        if (isModifier(k.key)) this.clearFinishTimer();
         if (k.key === 'Escape') {
           k.preventDefault();
           k.stopPropagation();
@@ -252,7 +323,9 @@ export class Controller {
       'keyup',
       (e) => {
         const k = e as KeyboardEvent;
-        if (isModifier(k.key) && this.multi && this.pending.length) void this.finishPicking();
+        if (!isModifier(k.key) || !this.multi || !this.pending.length) return;
+        this.clearFinishTimer();
+        this.finishTimer = setTimeout(() => void this.finishPicking(), this.deps.releaseGraceMs ?? 600);
       },
     ],
   ];
@@ -307,6 +380,10 @@ export class Controller {
   }
 
   private async showPanel(): Promise<Panel> {
+    if (this.opening) {
+      await this.opening;
+      return this.showPanel();
+    }
     const targets = this.group.map((el) => this.target(el));
     if (this.panel) {
       this.panel.setTargets(targets);
@@ -314,6 +391,15 @@ export class Controller {
       this.setMarks(this.group);
       return this.panel;
     }
+    this.opening = this.createPanel(targets);
+    try {
+      return await this.opening;
+    } finally {
+      this.opening = null;
+    }
+  }
+
+  private async createPanel(targets: Target[]): Promise<Panel> {
     this.settings = (await this.deps.loadSettings().catch(() => null)) ?? this.settings;
     const panel = new Panel(this.deps.bridge, {
       onClose: (p) => {
@@ -324,7 +410,16 @@ export class Controller {
       },
       onPick: () => this.startPicking(true),
       onMinimize: (_p, minimized) => {
-        if (this.picking) return;
+        if (this.picking) {
+          // Opening the bar from its pill while picking abandons the pick.
+          if (!minimized) {
+            this.pending = [];
+            this.stopPicking();
+            this.resolveGroup();
+            this.setMarks(this.group);
+          }
+          return;
+        }
         if (minimized) return this.setMarks([]);
         this.resolveGroup();
         this.setMarks(this.group);

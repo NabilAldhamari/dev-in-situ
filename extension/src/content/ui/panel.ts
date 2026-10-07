@@ -132,6 +132,10 @@ export class Panel {
   private disconnect: (() => void) | null = null;
   private agentText: HTMLElement | null = null;
   private lastReply = '';
+  /** Per run: how it was started, whether the user stopped it, and whether an error was already shown. */
+  private runMode: Settings['mode'] = 'background';
+  private stopping = false;
+  private errorShown = false;
   private unread = false;
   private drag: { x: number; y: number } | null = null;
   private position: { left: number; top: number } | null = null;
@@ -501,6 +505,7 @@ export class Panel {
     this.autosize();
     this.sessionKey = res.data.sessionKey;
     this.sentKey = key;
+    this.runMode = this.value('mode') === 'terminal' ? 'terminal' : 'background';
     this.enterChat();
     this.append('prompt', instruction);
     this.follow(res.data.dispatchId);
@@ -540,6 +545,8 @@ export class Panel {
     this.run = dispatchId;
     this.agentText = null;
     this.lastReply = '';
+    this.stopping = false;
+    this.errorShown = false;
     let last = 0;
     let retries = 0;
     this.setBusy(true, 'Starting…');
@@ -580,7 +587,9 @@ export class Panel {
         return;
       case 'error':
         this.append('error', event.message);
-        this.events.toast('error', event.message);
+        // One toast per run; later errors stay in the thread so a chatty agent can't flood the page.
+        if (!this.errorShown && !this.stopping) this.events.toast('error', event.message);
+        this.errorShown = true;
         return;
       case 'done':
         this.finish(event);
@@ -599,8 +608,19 @@ export class Panel {
     this.setDot(ok ? 'ok' : 'bad');
     if (this.minimized) this.unread = true;
     this.renderPill();
+    if (this.stopping) {
+      this.setDot('ok');
+      this.events.toast('info', 'Stopped.');
+      return;
+    }
+    if (this.runMode === 'terminal') {
+      if (ok) this.events.toast('info', event.message || 'Opened in a terminal window.');
+      else if (!this.errorShown) this.events.toast('error', event.message || 'Could not open a terminal.');
+      return;
+    }
     const reply = this.lastReply.trim().replace(/\s+/g, ' ');
     if (ok) this.events.toast('success', reply ? `Done: ${reply.length > 140 ? `${reply.slice(0, 140)}…` : reply}` : event.message || 'Finished');
+    else if (!this.errorShown) this.events.toast('error', event.message || 'Failed');
     if (this.checked('notify')) {
       this.events.notify(ok ? 'dev-in-situ: reply ready' : 'dev-in-situ: run failed', (ok ? reply : '') || event.message || (ok ? 'Finished' : 'Failed'));
     }
@@ -641,7 +661,9 @@ export class Panel {
   }
 
   private async stop(): Promise<void> {
-    if (this.run) await this.bridge.api(`/dispatch/${this.run}`, 'DELETE');
+    if (!this.run) return;
+    this.stopping = true;
+    await this.bridge.api(`/dispatch/${this.run}`, 'DELETE');
   }
 
   private async reset(): Promise<void> {

@@ -29,6 +29,7 @@ test('parseDispatch caps the number of targets and requires at least one', () =>
   const many = Array.from({ length: MAX_TARGETS + 5 }, (_, i) => ({ selector: `#e${i}` }));
   assert.equal(parseDispatch({ ...base, targets: many }, DEFAULT_CONFIG).targets.length, MAX_TARGETS);
   assert.throws(() => parseDispatch({ ...base, targets: [] }, DEFAULT_CONFIG), /selector is required/);
+  assert.equal(parseDispatch({ ...base, selector: '#a', targets: [] }, DEFAULT_CONFIG).targets[0]!.selector, '#a');
   assert.throws(() => parseDispatch({ ...base }, DEFAULT_CONFIG), /selector is required/);
   assert.throws(() => parseDispatch({ ...base, selector: '#a', agent: 'nope' }, DEFAULT_CONFIG), /Unknown agent/);
 });
