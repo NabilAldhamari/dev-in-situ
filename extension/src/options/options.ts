@@ -2,7 +2,8 @@ import { loadSettings, request, saveSettings } from '../shared/daemon.js';
 import type { ConfigResponse, Settings } from '../shared/types.js';
 
 const $ = <T extends HTMLElement = HTMLInputElement>(id: string) => document.getElementById(id) as T;
-const FIELDS = ['daemonUrl', 'token', 'agent', 'mode', 'scope', 'refresh', 'refreshSeconds'] as const;
+const FIELDS = ['daemonUrl', 'token', 'agent', 'mode', 'scope', 'refresh', 'refreshSeconds', 'theme'] as const;
+const CHECKS = ['bypass', 'docked', 'collapseOnSend', 'notify'] as const;
 
 function say(id: string, text: string, ok: boolean): void {
   const el = $(id);
@@ -39,8 +40,8 @@ async function connect(): Promise<void> {
 async function init(): Promise<void> {
   const settings = await loadSettings();
   for (const key of FIELDS) $(key).value = String(settings[key]);
-  $('bypass').checked = settings.bypass;
-  for (const key of ['agent', 'mode', 'scope', 'refresh', 'refreshSeconds', 'bypass']) {
+  for (const key of CHECKS) $(key).checked = settings[key];
+  for (const key of ['agent', 'mode', 'scope', 'refresh', 'refreshSeconds', 'theme', ...CHECKS]) {
     $(key).addEventListener('change', () => void save());
   }
   $('connect').addEventListener('click', async () => {
@@ -72,6 +73,10 @@ async function save(): Promise<Settings> {
     mode: $<HTMLSelectElement>('mode').value as Settings['mode'],
     scope: $<HTMLSelectElement>('scope').value as Settings['scope'],
     bypass: $('bypass').checked,
+    docked: $('docked').checked,
+    collapseOnSend: $('collapseOnSend').checked,
+    notify: $('notify').checked,
+    theme: $<HTMLSelectElement>('theme').value as Settings['theme'],
     refresh: $<HTMLSelectElement>('refresh').value as Settings['refresh'],
     refreshSeconds: seconds,
   });

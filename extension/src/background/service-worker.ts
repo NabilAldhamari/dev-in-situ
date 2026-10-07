@@ -1,5 +1,18 @@
 import { allowedFromPage, loadSettings, request, saveSettings, stream } from '../shared/daemon.js';
 import { type Message, STREAM_PORT, type StreamMessage } from '../shared/types.js';
+import { createNotifier } from './notify.js';
+
+const notifier = createNotifier(
+  chrome.notifications,
+  {
+    async focusTab(tabId) {
+      const tab = await chrome.tabs.update(tabId, { active: true }).catch(() => null);
+      if (tab?.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+    },
+  },
+  chrome.runtime.getURL('icons/icon-128.png'),
+);
+chrome.notifications.onClicked.addListener((id) => void notifier.clicked(id));
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') void chrome.runtime.openOptionsPage();
@@ -19,7 +32,7 @@ chrome.commands.onCommand.addListener(async (command) => {
   await toggle(tab);
 });
 
-async function handle(message: Message): Promise<unknown> {
+async function handle(message: Message, sender: chrome.runtime.MessageSender): Promise<unknown> {
   switch (message.type) {
     case 'settings':
       return loadSettings();
@@ -27,6 +40,8 @@ async function handle(message: Message): Promise<unknown> {
       return saveSettings(message.patch);
     case 'openOptions':
       return chrome.runtime.openOptionsPage();
+    case 'notify':
+      return notifier.notify(sender.tab?.id, String(message.title), String(message.message));
     case 'api': {
       const method = message.method ?? 'GET';
       if (!allowedFromPage(method, message.path)) return { ok: false, status: 403, error: 'Not allowed' };
@@ -37,8 +52,8 @@ async function handle(message: Message): Promise<unknown> {
   }
 }
 
-chrome.runtime.onMessage.addListener((message: Message, _sender, reply) => {
-  handle(message).then(reply, (err: Error) => reply({ ok: false, status: 0, error: err.message }));
+chrome.runtime.onMessage.addListener((message: Message, sender, reply) => {
+  handle(message, sender).then(reply, (err: Error) => reply({ ok: false, status: 0, error: err.message }));
   return true;
 });
 

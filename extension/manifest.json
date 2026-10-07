@@ -5,7 +5,8 @@
   "description": "Click any element, describe the change, and let your local AI coding agent edit the source.",
   "minimum_chrome_version": "116",
   "permissions": [
-    "storage"
+    "storage",
+    "notifications"
   ],
   "host_permissions": [
     "http://127.0.0.1/*",

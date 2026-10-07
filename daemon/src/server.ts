@@ -8,6 +8,13 @@ import { openTerminal, resolveExecutable, runProcess } from './runner.js';
 import { type Scope, Store, sessionKey } from './store.js';
 import { ChangeWatcher, checkWorkspace, listDirs } from './workspace.js';
 
+export interface DispatchTarget {
+  selector: string;
+  elementKey: string | null;
+  html: string;
+  component: { name?: string | null; file?: string | null; line?: number | null } | null;
+}
+
 export interface DispatchBody {
   agent: string;
   mode: RunMode;
@@ -26,7 +33,10 @@ export interface DispatchBody {
   bypass: boolean;
   sessionKey: string | null;
   followUp: boolean;
+  targets: DispatchTarget[];
 }
+
+export const MAX_TARGETS = 20;
 
 export interface ServerDeps {
   config: Config;
@@ -39,6 +49,14 @@ export interface ServerDeps {
 const EXTENSION_ORIGIN = /^(chrome|moz|safari-web)-extension:\/\/[a-z0-9-]+$/i;
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const SCOPES: Scope[] = ['page', 'element', 'new'];
+
+function parseTarget(value: unknown): DispatchTarget | null {
+  const t = (value ?? {}) as Record<string, unknown>;
+  const selector = text(t.selector, 2000);
+  if (!selector) return null;
+  const component = t.component && typeof t.component === 'object' ? (t.component as DispatchTarget['component']) : null;
+  return { selector, elementKey: text(t.elementKey, 2000) || null, html: text(t.html, 50_000), component };
+}
 
 function safeEqual(a: string, b: string): boolean {
   const x = Buffer.from(a);
@@ -56,10 +74,13 @@ export function parseDispatch(body: unknown, config: Config): DispatchBody {
   const scope = SCOPES.includes(b.scope as Scope) ? (b.scope as Scope) : 'element';
   const instruction = text(b.instruction, 20_000).trim();
   if (!instruction) throw new Error('Write an instruction first.');
-  for (const key of ['origin', 'url', 'selector', 'workspacePath'] as const) {
+  for (const key of ['origin', 'url', 'workspacePath'] as const) {
     if (!text(b[key])) throw new Error(`${key} is required`);
   }
-  const component = b.component && typeof b.component === 'object' ? (b.component as DispatchBody['component']) : null;
+  const listed = Array.isArray(b.targets) ? b.targets.slice(0, MAX_TARGETS).map(parseTarget) : [parseTarget(b)];
+  const targets = listed.filter((t): t is DispatchTarget => t !== null);
+  if (!targets.length) throw new Error('selector is required');
+  const first = targets[0]!;
   return {
     agent,
     mode,
@@ -67,17 +88,18 @@ export function parseDispatch(body: unknown, config: Config): DispatchBody {
     origin: text(b.origin, 500),
     url: text(b.url, 2000),
     pathname: text(b.pathname, 2000) || '/',
-    selector: text(b.selector, 2000),
-    elementKey: text(b.elementKey, 2000) || null,
-    html: text(b.html, 50_000),
+    selector: first.selector,
+    elementKey: text(b.elementKey, 2000) || first.elementKey,
+    html: first.html,
     instruction,
     workspacePath: text(b.workspacePath, 1000),
-    component,
+    component: first.component,
     stack: Array.isArray(b.stack) ? b.stack.filter((s): s is string => typeof s === 'string').slice(0, 12) : null,
     model: text(b.model, 200).trim() || null,
     bypass: b.bypass === true,
     sessionKey: text(b.sessionKey, 5000) || null,
     followUp: b.followUp === true,
+    targets,
   };
 }
 

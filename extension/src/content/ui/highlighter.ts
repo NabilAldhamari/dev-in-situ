@@ -12,7 +12,6 @@ export const HIGHLIGHTER_CSS = `
   background: rgba(122, 162, 247, 0.12);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
   pointer-events: none;
-  transition: top 60ms linear, left 60ms linear, width 60ms linear, height 60ms linear;
   display: none;
 }
 .mark {
@@ -52,7 +51,15 @@ export const HIGHLIGHTER_CSS = `
   white-space: nowrap;
   pointer-events: none;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
   display: none;
+}
+.status[data-theme='light'] {
+  color: #1f2328;
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
 }
 `;
 
@@ -63,6 +70,7 @@ export class Highlighter {
   private tag: HTMLElement | null = null;
   private status: HTMLElement | null = null;
   private readonly marks = new Map<object, { el: Element; ring: HTMLElement }>();
+  private theme: 'light' | 'dark' = 'dark';
   private frame = 0;
   private readonly schedule = (): void => {
     if (this.frame) return;
@@ -111,6 +119,11 @@ export class Highlighter {
     this.status = status;
   }
 
+  setTheme(theme: 'light' | 'dark'): void {
+    this.theme = theme;
+    if (this.status) this.status.dataset.theme = theme;
+  }
+
   highlight(el: Element, label?: string): void {
     this.mount();
     const rect = el.getBoundingClientRect();
@@ -144,6 +157,7 @@ export class Highlighter {
     }
     this.mount();
     const status = this.status as HTMLElement;
+    status.dataset.theme = this.theme;
     status.textContent = text;
     status.style.display = 'block';
   }

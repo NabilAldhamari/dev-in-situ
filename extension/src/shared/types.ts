@@ -1,6 +1,8 @@
 export type RunMode = 'background' | 'terminal';
 export type Scope = 'element' | 'page' | 'new';
 export type RefreshMode = 'auto' | 'always' | 'off';
+export type ThemePreference = 'auto' | 'light' | 'dark';
+export type Theme = 'light' | 'dark';
 
 export interface Settings {
   daemonUrl: string;
@@ -11,6 +13,10 @@ export interface Settings {
   bypass: boolean;
   refresh: RefreshMode;
   refreshSeconds: number;
+  theme: ThemePreference;
+  docked: boolean;
+  collapseOnSend: boolean;
+  notify: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -22,6 +28,10 @@ export const DEFAULT_SETTINGS: Settings = {
   bypass: false,
   refresh: 'auto',
   refreshSeconds: 2,
+  theme: 'auto',
+  docked: true,
+  collapseOnSend: true,
+  notify: true,
 };
 
 export interface ComponentHint {
@@ -95,6 +105,7 @@ export type Message =
   | { type: 'settings' }
   | { type: 'saveSettings'; patch: Partial<Settings> }
   | { type: 'openOptions' }
+  | { type: 'notify'; title: string; message: string }
   | { type: 'toggle' };
 
 export const STREAM_PORT = 'dev-in-situ-stream';

@@ -19,13 +19,14 @@ Load `extension/dist` as an unpacked extension in `chrome://extensions` and relo
 
 ```
 daemon/     Express bridge: agents.ts (presets, args, output parsing), server.ts (HTTP + SSE), runner.ts (processes, terminals)
-extension/  MV3 extension: content/ (picker, popover, stack detection), background/ (daemon relay), options/
+extension/  MV3 extension: content/ (picker, chat bar, toasts, theme and stack detection), background/ (daemon relay), options/
 scripts/    setup and build helpers shared by both packages
 ```
 
 ## Before you open a pull request
 
 - Run `npm run check`. It typechecks, tests and builds both packages, the same as CI.
+- For UI changes, also run `npm run e2e --prefix extension` (needs `npx --prefix extension playwright install chromium` once).
 - Add or update tests for behavior changes.
 - Keep PRs focused. One fix or feature per PR is easier to review.
 - Update the README if you change user-facing behavior, config fields or presets.
