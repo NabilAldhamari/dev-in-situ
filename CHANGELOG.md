@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+- Select several elements at once: hold Ctrl (⌘ on a Mac) while clicking, then let go. One chat bar covers them all, and the agent gets every element in one prompt.
+- The popover is now a chat bar docked to the bottom of the page, laid out like the usual AI chat apps: element chips, a prompt box that sends on Enter, an agent picker, and options behind one button. It can be undocked to float.
+- The bar follows the site's light or dark look, then the system setting, with a translucent, blurred background. Settings can force light or dark.
+- Success and error messages appear as toasts, and a browser notification arrives when the agent replies or fails.
+- After sending, the bar shrinks to a pill so the page is free to use. This can be turned off.
+- End-to-end test that loads the built extension in Chromium against a real daemon (`npm run e2e --prefix extension`), run in CI on Linux.
+
+### Changed
+- Minimizing the bar hides the outlines of all selected elements; opening it again brings them back.
+- The daemon accepts a `targets` list in `/dispatch`. The single-element fields still work.
+
+### Fixed
+- While picking, the outline no longer sticks to the old element after the page scrolls, and a click selects the element that is actually under the pointer.
+- Picking no longer blocks dragging the page's scrollbar.
+
 ## [0.3.0] - 2026-10-02
 
 ### Added

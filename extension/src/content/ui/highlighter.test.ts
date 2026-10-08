@@ -52,3 +52,25 @@ describe('Highlighter marks', () => {
     expect(marks()[0]!.style.display).toBe('none');
   });
 });
+
+describe('Highlighter status', () => {
+  it('shows the picking hint in the current theme and hides it again', () => {
+    const h = new Highlighter();
+    h.setTheme('light');
+    h.setStatus('Click an element');
+    const status = root.querySelector<HTMLElement>('.status')!;
+    expect([status.textContent, status.style.display, status.dataset.theme]).toEqual(['Click an element', 'block', 'light']);
+    h.setTheme('dark');
+    expect(status.dataset.theme).toBe('dark');
+    h.setStatus(null);
+    expect(status.style.display).toBe('none');
+  });
+
+  it('follows the hovered element with a size label', () => {
+    const h = new Highlighter();
+    h.highlight(document.querySelector('#a')!);
+    expect(root.querySelector('.tag')!.textContent).toBe('section · 0×0');
+    h.clearRing();
+    expect(root.querySelector<HTMLElement>('.ring')!.style.display).toBe('none');
+  });
+});

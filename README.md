@@ -12,17 +12,17 @@
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![GitHub stars](https://img.shields.io/github/stars/NabilAldhamari/dev-in-situ?style=social)](https://github.com/NabilAldhamari/dev-in-situ/stargazers)
 
-[Quick start](#quick-start) · [The popover](#the-popover) · [Agents](#agents) · [Security](#security) · [Contributing](CONTRIBUTING.md)
+[Quick start](#quick-start) · [The chat bar](#the-chat-bar) · [Agents](#agents) · [Security](#security) · [Contributing](CONTRIBUTING.md)
 
-<img src="docs/screenshot.png" alt="dev-in-situ on wikipedia.org: the language nav stays outlined while the popover beside it shows the project folder, CSS selector, change request and agent picker" width="900">
+<img src="docs/screenshot.png" alt="Two sections selected with Ctrl-click stay outlined while the chat bar docked at the bottom shows a chip for each, the prompt box, project folder and agent picker" width="900">
 
-<sub>Picking the language nav on wikipedia.org. The element stays outlined while you write the request, and the popover shows the selector it will send.</sub>
+<sub>Two elements picked with Ctrl-click. Both stay outlined while you write the request, and the chat bar shows a chip for each one it will send.</sub>
 
 </div>
 
 ---
 
-Click any element on a page you're developing, write what should change, and your local AI coding agent edits the source. It works with Claude Code, Codex, Gemini CLI, opencode, Antigravity, Kimi, GLM, local models through Ollama, and any other CLI you configure.
+Click any element on a page you're developing (or several, with Ctrl/⌘), write what should change, and your local AI coding agent edits the source. It works with Claude Code, Codex, Gemini CLI, opencode, Antigravity, Kimi, GLM, local models through Ollama, and any other CLI you configure.
 
 ```
 browser extension  ──►  local daemon (127.0.0.1:4141)  ──►  your agent CLI, run in your project folder
@@ -44,26 +44,29 @@ npm start          # starts the daemon and prints your token
 
 1. Open `chrome://extensions` (or the equivalent page in Edge or Brave) and turn on **Developer mode**. Click **Load unpacked** and select `extension/dist`.
 2. The settings page opens. Paste the token and click **Save & test**.
-3. On any page, press **Ctrl+Shift+X** (**⌘+Shift+X** on a Mac) or click the toolbar icon. Then click an element.
-4. Pick your project folder once per site, either with **Browse** or by pasting a path. Describe the change and press **Ctrl+Enter**.
+3. On any page, press **Ctrl+Shift+X** (**⌘+Shift+X** on a Mac) or click the toolbar icon. Then click an element. To select several, hold **Ctrl** (**⌘**) and click each one, then let go.
+4. A chat bar opens at the bottom of the page with one chip per selected element. Pick your project folder once per site (📁 in the bar), describe the change and press **Enter**.
 
-The popover turns into a chat. You see what the agent is doing ("Edit src/Button.tsx"), then its answer, and you can reply to keep the same conversation going. You can minimize the popover with **Esc** while the agent works.
+The bar works like any AI chat: your messages on the right, the agent's replies on the left, **Shift+Enter** for a new line, and a stop button while it works. After you send, it shrinks to a small pill so you can keep using the page. When the agent replies you get a toast and a browser notification; click the pill to read the reply and continue the conversation.
 
-## The popover
+## The chat bar
 
-| Field | Meaning |
+| Control | Meaning |
 |---|---|
-| Project folder | The folder the agent works in. It is remembered per site. |
-| Element | The CSS selector sent to the agent. It also shows the component and source file when the page exposes them (React, Vue, Svelte, Angular). |
+| Element chips | The elements the agent is asked about. ✕ removes one, **＋** adds more (or hold Ctrl/⌘ while picking). |
+| 📁 Project folder | The folder the agent works in. It is remembered per site. |
 | Agent | Any agent from your config. Agents whose CLI isn't installed are marked *not found*. |
-| Run | **Here, as a chat** runs the agent in the background and streams its progress into the popover. **In a terminal window** opens a real terminal with the agent. |
-| More options → Conversation | **Continue per element** (default) or **Continue per page** carry the agent's memory over. **Always start fresh** does not. |
-| More options → Model | Overrides the model for this run only. |
-| More options → Skip all permission prompts | Passes the agent's "yolo" flag. Without it, agents may still edit files, but they ask before anything riskier. |
+| Options → Run | **Here, as a chat** streams the agent's progress into the bar. **In a terminal window** opens a real terminal with the agent. |
+| Options → Conversation | **Continue per selection** (default) or **Continue per page** carry the agent's memory over. **Always start fresh** does not. |
+| Options → Model | Overrides the model for this run only. |
+| Options → Skip all permission prompts | Passes the agent's "yolo" flag. Without it, agents may still edit files, but they ask before anything riskier. |
+| Options → Minimize after sending | On by default, so the page is free to use while the agent works. |
+| Options → Dock to the bottom | On by default. Turn it off to get a floating bar you can drag by its title. |
+| Options → Browser notifications | A system notification when the agent replies or fails. |
 
-The picked element stays outlined for as long as its popover is open. The outline follows scrolling and resizing, moves when you pick another element with ⌖, and disappears when you close the popover.
+The selected elements stay outlined while the bar is open. Minimizing (**Esc** or –) hides the outlines, and opening the bar again brings them all back.
 
-The header shows the stack detected on the page, such as `React · Next.js · Vite`.
+The bar follows the site's light or dark look, falling back to your system setting, with a translucent, blurred background. You can force light or dark in settings.
 
 ## Auto-refresh
 
@@ -143,13 +146,14 @@ The agent gets only what it needs: the selector, the component and source file i
 
 ```bash
 npm run check      # typecheck, test and build both packages
+npm run e2e --prefix extension    # end-to-end test: the built extension in Chromium against a real daemon
 npm run dev --prefix extension    # rebuild the extension on change
 npm run dev --prefix daemon       # restart the daemon on change
 ```
 
 ```
 daemon/     Express bridge: agents.ts (presets, args, output parsing), server.ts (HTTP + SSE), runner.ts (processes, terminals)
-extension/  MV3 extension: content/ (picker, popover, stack detection), background/ (daemon relay), options/
+extension/  MV3 extension: content/ (picker, chat bar, toasts, theme and stack detection), background/ (daemon relay), options/
 ```
 
 CI runs typecheck, tests and a build on Linux, Windows and macOS for every push and pull request. The built extension is uploaded as a workflow artifact.

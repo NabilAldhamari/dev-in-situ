@@ -66,6 +66,18 @@
         </div>
         <label class="check"><input id="bypass" type="checkbox" /> Skip all permission prompts <small>(the agent may run any command)</small></label>
         <div class="row">
+          <label>Theme
+            <select id="theme">
+              <option value="auto">Auto: match the site, then your system</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+        </div>
+        <label class="check"><input id="docked" type="checkbox" /> Dock the chat bar to the bottom of the page</label>
+        <label class="check"><input id="collapseOnSend" type="checkbox" /> Minimize the chat bar after sending, so you can keep using the page</label>
+        <label class="check"><input id="notify" type="checkbox" /> Show a browser notification when the agent replies</label>
+        <div class="row">
           <label>Reload the page when files change
             <select id="refresh">
               <option value="auto">Auto: only if the page has no hot reload</option>

@@ -22,3 +22,38 @@ test('buildPrompt is short and complete', () => {
     'Change the element `#cta` on http://localhost:3000/.\nComponent: Hero (src/Hero.tsx:12)\nStack: React, Vite\n```html\n<button id="cta">Buy</button>\n```\nTask: make it green',
   );
 });
+
+test('buildPrompt lists every element of a multi-selection', () => {
+  const prompt = buildPrompt({
+    url: 'http://localhost:3000/',
+    selector: '#a',
+    html: '<a id="a">A</a>',
+    instruction: 'align these',
+    stack: ['Vue'],
+    targets: [
+      { selector: '#a', html: '<a id="a">A</a>', component: { name: 'Nav', file: 'src/Nav.vue', line: 3 } },
+      { selector: '.b', html: '<p class="b">\n  B\n</p>', component: null },
+    ],
+  });
+  assert.equal(
+    prompt,
+    [
+      'Change these 2 elements on http://localhost:3000/.',
+      'Stack: Vue',
+      '1. `#a` (component: Nav (src/Nav.vue:3))',
+      '```html',
+      '<a id="a">A</a>',
+      '```',
+      '2. `.b`',
+      '```html',
+      '<p class="b"> B </p>',
+      '```',
+      'Task: align these',
+    ].join('\n'),
+  );
+});
+
+test('buildPrompt with a single listed target matches the single-element format', () => {
+  const base = { url: 'http://x/', selector: '#a', html: '<i id="a"></i>', instruction: 'go' };
+  assert.equal(buildPrompt({ ...base, targets: [{ selector: '#a', html: '<i id="a"></i>' }] }), buildPrompt(base));
+});

@@ -121,6 +121,31 @@ test('dispatch streams progress, saves the session and resumes follow-ups', asyn
   assert.equal(session.body.session.turns, 2);
 });
 
+test('dispatch sends every selected element to the agent and keys the session by the group', async () => {
+  const request = {
+    origin: 'http://localhost:5174',
+    url: 'http://localhost:5174/',
+    pathname: '/',
+    elementKey: '#a|.b',
+    targets: [
+      { selector: '#a', elementKey: '#a', html: '<a id="a">A</a>' },
+      { selector: '.b', elementKey: '.b', html: '<p class="b">B</p>' },
+    ],
+    instruction: 'line them up',
+    workspacePath: project,
+  };
+  const res = await call('POST', '/dispatch', request);
+  assert.equal(res.status, 202);
+  const log = events((await call('GET', `/stream/${res.body.dispatchId}`)).raw);
+  const prompt = log.find((e) => e.level === 'prompt').message as string;
+  assert.match(prompt, /^Change these 2 elements on http:\/\/localhost:5174\/\./);
+  assert.match(prompt, /1\. `#a`/);
+  assert.match(prompt, /2\. `\.b`/);
+  assert.equal(log.at(-1).level, 'done');
+  const session = await call('GET', `/session?agent=fake&scope=element&origin=http://localhost:5174&pathname=/&elementKey=${encodeURIComponent('#a|.b')}`);
+  assert.equal(session.body.session.turns, 1);
+});
+
 test('dispatch validates input', async () => {
   assert.match((await call('POST', '/dispatch', { instruction: '' })).body.error, /instruction/);
   const badPath = await call('POST', '/dispatch', { origin: 'o', url: 'u', selector: 's', instruction: 'x', workspacePath: 'relative' });
