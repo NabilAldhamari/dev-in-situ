@@ -1,3 +1,4 @@
+import type { Theme } from '../../shared/types.js';
 import { applyHostBarrier } from './host-barrier.js';
 
 const HIGHLIGHTER_ID = 'dev-in-situ-highlighter';
@@ -70,7 +71,7 @@ export class Highlighter {
   private tag: HTMLElement | null = null;
   private status: HTMLElement | null = null;
   private readonly marks = new Map<object, { el: Element; ring: HTMLElement }>();
-  private theme: 'light' | 'dark' = 'dark';
+  private theme: Theme = 'dark';
   private frame = 0;
   private readonly schedule = (): void => {
     if (this.frame) return;
@@ -119,7 +120,7 @@ export class Highlighter {
     this.status = status;
   }
 
-  setTheme(theme: 'light' | 'dark'): void {
+  setTheme(theme: Theme): void {
     this.theme = theme;
     if (this.status) this.status.dataset.theme = theme;
   }
@@ -127,12 +128,7 @@ export class Highlighter {
   highlight(el: Element, label?: string): void {
     this.mount();
     const rect = el.getBoundingClientRect();
-    const ring = this.ring as HTMLElement;
-    ring.style.display = 'block';
-    ring.style.top = `${rect.top}px`;
-    ring.style.left = `${rect.left}px`;
-    ring.style.width = `${rect.width}px`;
-    ring.style.height = `${rect.height}px`;
+    cover(this.ring as HTMLElement, rect);
 
     const tag = this.tag as HTMLElement;
     const text =
@@ -198,26 +194,19 @@ export class Highlighter {
         ring.style.display = 'none';
         continue;
       }
-      const rect = el.getBoundingClientRect();
-      ring.style.display = 'block';
-      ring.style.top = `${rect.top}px`;
-      ring.style.left = `${rect.left}px`;
-      ring.style.width = `${rect.width}px`;
-      ring.style.height = `${rect.height}px`;
+      cover(ring, el.getBoundingClientRect());
     }
-  }
-
-  destroy(): void {
-    for (const owner of [...this.marks.keys()]) this.unmark(owner);
-    this.host?.remove();
-    this.host = null;
-    this.root = null;
-    this.ring = null;
-    this.tag = null;
-    this.status = null;
   }
 
   owns(node: EventTarget | null): boolean {
     return node instanceof Node && this.host !== null && this.host.contains(node);
   }
+}
+
+function cover(ring: HTMLElement, rect: DOMRect): void {
+  ring.style.display = 'block';
+  ring.style.top = `${rect.top}px`;
+  ring.style.left = `${rect.left}px`;
+  ring.style.width = `${rect.width}px`;
+  ring.style.height = `${rect.height}px`;
 }

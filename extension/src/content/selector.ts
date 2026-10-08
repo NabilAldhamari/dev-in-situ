@@ -92,6 +92,15 @@ function rootOf(el: Element): Document | ShadowRoot {
   if (root instanceof ShadowRoot) return root;
   return el.ownerDocument;
 }
+/** `querySelector` that treats an invalid selector as "not found" instead of throwing. */
+export function findBySelector(selector: string, root: ParentNode = document): Element | null {
+  try {
+    return root.querySelector(selector);
+  } catch {
+    return null;
+  }
+}
+
 export function resolvesTo(selector: string, el: Element): boolean {
   try {
     const root = rootOf(el);
@@ -116,11 +125,15 @@ function testAttrOf(el: Element): { attr: string; value: string } | null {
   }
   return null;
 }
+
+function testSelector(test: { attr: string; value: string }): string {
+  return `[${test.attr}=${quoteAttr(test.value)}]`;
+}
 function tokenVariants(el: Element): string[] {
   const tag = tagOf(el);
   const variants: string[] = [];
   const test = testAttrOf(el);
-  if (test) variants.push(`[${test.attr}=${quoteAttr(test.value)}]`);
+  if (test) variants.push(testSelector(test));
   if (el.id && isSemanticId(el.id)) variants.push(`#${cssEscape(el.id)}`);
   const classes = stableClasses(el);
   if (classes.length) {
@@ -160,10 +173,7 @@ function isSemanticAnchor(el: Element): boolean {
 }
 function anchorSelectorFor(el: Element): string | null {
   const test = testAttrOf(el);
-  if (test) {
-    const sel = `[${test.attr}=${quoteAttr(test.value)}]`;
-    if (resolvesTo(sel, el)) return sel;
-  }
+  if (test && resolvesTo(testSelector(test), el)) return testSelector(test);
   if (el.id && isSemanticId(el.id)) {
     const sel = `#${cssEscape(el.id)}`;
     if (resolvesTo(sel, el)) return sel;
@@ -180,7 +190,7 @@ function anchorSelectorFor(el: Element): string | null {
 function byTestAttribute(el: Element): SelectorResult | null {
   const test = testAttrOf(el);
   if (!test) return null;
-  const bare = `[${test.attr}=${quoteAttr(test.value)}]`;
+  const bare = testSelector(test);
   if (resolvesTo(bare, el)) {
     return { selector: bare, strategy: 'test-attribute', unique: true };
   }
@@ -271,12 +281,7 @@ export function buildSelector(el: Element): SelectorResult {
   }
   if (tagOf(el) === 'html') return { selector: 'html', strategy: 'id', unique: true };
   if (tagOf(el) === 'body') return { selector: 'body', strategy: 'id', unique: true };
-  return (
-    byTestAttribute(el) ??
-    byId(el) ??
-    byMinimalPath(el) ??
-    byAnchoredNth(el)
-  );
+  return byTestAttribute(el) ?? byId(el) ?? byMinimalPath(el) ?? byAnchoredNth(el);
 }
 export function elementKey(el: Element): string {
   const parts: string[] = [];

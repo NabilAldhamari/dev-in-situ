@@ -100,6 +100,8 @@ export interface InvocationInput {
   timeoutSeconds?: number;
 }
 
+const DEFAULT_TIMEOUT_SECONDS = 30 * 60;
+
 export function buildArgs(spec: AgentSpec, input: InvocationInput): string[] {
   const model = input.model || spec.model;
   const values: Record<string, string> = {
@@ -107,7 +109,7 @@ export function buildArgs(spec: AgentSpec, input: InvocationInput): string[] {
     cwd: input.cwd,
     model,
     session: input.session || input.newSession || '',
-    timeout: String(input.timeoutSeconds ?? 1800),
+    timeout: String(input.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS),
   };
   const options = [
     ...spec.args,
@@ -139,15 +141,27 @@ export interface Parsed {
 
 type Obj = Record<string, unknown>;
 
+const GENERIC_ERROR = 'The agent reported an error.';
+const TARGET_DISPLAY_LIMIT = 60;
+
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
 const obj = (v: unknown): Obj => (v && typeof v === 'object' ? (v as Obj) : {});
 
 export function describeTool(name: string, input: unknown): string {
   const f = obj(input);
   const target = str(f.file_path) ?? str(f.filePath) ?? str(f.path) ?? str(f.command) ?? str(f.pattern) ?? str(f.query) ?? '';
-  const short = target.length > 60 ? `…${target.slice(-59)}` : target;
+  const short = target.length > TARGET_DISPLAY_LIMIT ? `…${target.slice(1 - TARGET_DISPLAY_LIMIT)}` : target;
   return short ? `${name} ${short}` : name;
 }
+
+/** Codex reports each step as an item; these turn the item into a one-line status. */
+const ITEM_STATUS = new Map<unknown, (item: Obj) => string>([
+  ['reasoning', () => 'Thinking…'],
+  ['command_execution', (item) => describeTool('Run', { command: item.command })],
+  ['file_change', (item) => `Edit ${((item.changes as Obj[] | undefined) ?? []).map((c) => str(c.path)).filter(Boolean).join(', ')}`.trim()],
+  ['mcp_tool_call', (item) => `${str(item.server) ?? 'mcp'} ${str(item.tool) ?? ''}`.trim()],
+  ['web_search', (item) => describeTool('Search', { query: item.query })],
+]);
 
 export function interpretLine(line: string): Parsed | null {
   const trimmed = line.trim();
@@ -199,14 +213,8 @@ export function interpretLine(line: string): Parsed | null {
     case 'item.completed': {
       const item = obj(e.item);
       if (item.type === 'agent_message' && kind === 'item.completed' && str(item.text)) out.text = `${item.text}\n`;
-      if (item.type === 'reasoning') out.status = 'Thinking…';
-      if (item.type === 'command_execution') out.status = describeTool('Run', { command: item.command });
-      if (item.type === 'file_change') {
-        const files = ((item.changes as Obj[] | undefined) ?? []).map((c) => str(c.path)).filter(Boolean);
-        out.status = `Edit ${files.join(', ')}`.trim();
-      }
-      if (item.type === 'mcp_tool_call') out.status = `${str(item.server) ?? 'mcp'} ${str(item.tool) ?? ''}`.trim();
-      if (item.type === 'web_search') out.status = describeTool('Search', { query: item.query });
+      const describe = ITEM_STATUS.get(item.type);
+      if (describe) out.status = describe(item);
       break;
     }
     case 'step_update': {
@@ -222,12 +230,12 @@ export function interpretLine(line: string): Parsed | null {
       if (typeof e.result === 'string') out.final = e.result;
       if (str(result.response)) out.final = result.response as string;
       if (e.is_error === true || e.status === 'error' || result.status === 'ERROR') {
-        out.error = str(e.result) ?? str(obj(e.error).message) ?? str(e.error) ?? str(result.error) ?? 'The agent reported an error.';
+        out.error = str(e.result) ?? str(obj(e.error).message) ?? str(e.error) ?? str(result.error) ?? GENERIC_ERROR;
       }
       break;
     case 'turn.failed':
     case 'error':
-      out.error = str(obj(e.error).message) ?? str(obj(obj(e.error).data).message) ?? str(e.message) ?? str(e.error) ?? 'The agent reported an error.';
+      out.error = str(obj(e.error).message) ?? str(obj(obj(e.error).data).message) ?? str(e.message) ?? str(e.error) ?? GENERIC_ERROR;
       break;
   }
   return out;

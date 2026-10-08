@@ -1,7 +1,13 @@
+export interface ComponentInfo {
+  name?: string | null;
+  file?: string | null;
+  line?: number | null;
+}
+
 export interface PromptTarget {
   selector: string;
   html: string;
-  component?: { name?: string | null; file?: string | null; line?: number | null } | null;
+  component?: ComponentInfo | null;
 }
 
 export interface PromptInput extends PromptTarget {
@@ -24,28 +30,38 @@ export function compactHtml(html: string, limit = HTML_LIMIT): string {
   return compact.length <= limit ? compact : `${compact.slice(0, limit)}…`;
 }
 
-function describeComponent(c: PromptTarget['component']): string | null {
+function describeComponent(c: ComponentInfo | null | undefined): string | null {
   if (!c?.name) return null;
   return `${c.name}${c.file ? ` (${c.file}${c.line ? `:${c.line}` : ''})` : ''}`;
 }
 
 export function buildPrompt(input: PromptInput): string {
   const targets = input.targets?.length ? input.targets : [input];
-  if (targets.length === 1) {
-    const t = targets[0]!;
-    const lines = [`Change the element \`${t.selector}\` on ${input.url}.`];
-    const component = describeComponent(t.component);
-    if (component) lines.push(`Component: ${component}`);
-    if (input.stack?.length) lines.push(`Stack: ${input.stack.join(', ')}`);
-    lines.push('```html', compactHtml(t.html), '```', `Task: ${input.instruction.trim()}`);
-    return lines.join('\n');
-  }
-  const lines = [`Change these ${targets.length} elements on ${input.url}.`];
-  if (input.stack?.length) lines.push(`Stack: ${input.stack.join(', ')}`);
-  targets.forEach((t, i) => {
-    const component = describeComponent(t.component);
-    lines.push(`${i + 1}. \`${t.selector}\`${component ? ` (component: ${component})` : ''}`, '```html', compactHtml(t.html), '```');
-  });
+  const lines = targets.length === 1 ? describeSingle(input.url, targets[0]!, input.stack) : describeGroup(input.url, targets, input.stack);
   lines.push(`Task: ${input.instruction.trim()}`);
   return lines.join('\n');
 }
+
+function describeSingle(url: string, target: PromptTarget, stack: PromptInput['stack']): string[] {
+  const component = describeComponent(target.component);
+  return [
+    `Change the element \`${target.selector}\` on ${url}.`,
+    ...(component ? [`Component: ${component}`] : []),
+    ...stackLine(stack),
+    ...htmlBlock(target.html),
+  ];
+}
+
+function describeGroup(url: string, targets: PromptTarget[], stack: PromptInput['stack']): string[] {
+  return [
+    `Change these ${targets.length} elements on ${url}.`,
+    ...stackLine(stack),
+    ...targets.flatMap((t, i) => {
+      const component = describeComponent(t.component);
+      return [`${i + 1}. \`${t.selector}\`${component ? ` (component: ${component})` : ''}`, ...htmlBlock(t.html)];
+    }),
+  ];
+}
+
+const stackLine = (stack: PromptInput['stack']): string[] => (stack?.length ? [`Stack: ${stack.join(', ')}`] : []);
+const htmlBlock = (html: string): string[] => ['```html', compactHtml(html), '```'];

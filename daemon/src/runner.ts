@@ -13,19 +13,20 @@ export interface Command {
 export function resolveExecutable(file: string, platform: NodeJS.Platform = process.platform): string | null {
   const exts = platform === 'win32' ? (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : [''];
   const candidates = (base: string) => (platform === 'win32' && path.extname(base) ? [base] : [base, ...exts.map((e) => base + e)]);
-  const isFile = (p: string) => {
-    try {
-      return fs.statSync(p).isFile();
-    } catch {
-      return false;
-    }
-  };
-  if (file.includes('/') || file.includes('\\')) return candidates(path.resolve(file)).find(isFile) ?? null;
+    if (file.includes('/') || file.includes('\\')) return candidates(path.resolve(file)).find(isFile) ?? null;
   for (const dir of (process.env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
     const found = candidates(path.join(dir, file)).find(isFile);
     if (found) return found;
   }
   return null;
+}
+
+function isFile(p: string): boolean {
+  try {
+    return fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
 }
 
 export function unwrapCmdShim(shimPath: string, contents: string): string | null {
@@ -43,6 +44,9 @@ export function spawnable(file: string, args: string[]): { file: string; args: s
   }
   return { file: resolved, args };
 }
+
+/** How long a stopped agent gets to exit cleanly before it is killed. */
+const KILL_GRACE_MS = 3000;
 
 export interface RunResult {
   exitCode: number | null;
@@ -73,7 +77,7 @@ export function runProcess(
     let error: string | undefined;
     const stop = () => {
       child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), 3000).unref();
+      setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS).unref();
     };
     const timer = setTimeout(() => {
       timedOut = true;
@@ -124,7 +128,10 @@ export function renderLauncher(cmd: Command, opts: { platform: NodeJS.Platform; 
   return `${lines.join('\n')}\n`;
 }
 
-const LINUX_TERMINALS: Array<[string, (s: string) => string[]]> = [
+/** A terminal binary and how it takes a script to run. */
+type TerminalLauncher = [string, (script: string) => string[]];
+
+const LINUX_TERMINALS: TerminalLauncher[] = [
   ['x-terminal-emulator', (s) => ['-e', 'bash', s]],
   ['gnome-terminal', (s) => ['--', 'bash', s]],
   ['konsole', (s) => ['-e', 'bash', s]],
@@ -148,25 +155,30 @@ export async function openTerminal(id: string, cmd: Command, promptIndex: number
   if (promptFile) fs.writeFileSync(promptFile, cmd.args[promptIndex] ?? '', { encoding: 'utf8', mode: 0o600 });
   const script = path.join(RUNS_DIR, `${id}.${platform === 'win32' ? 'ps1' : 'sh'}`);
   fs.writeFileSync(script, renderLauncher(cmd, { platform, promptFile, promptIndex }), { encoding: 'utf8', mode: 0o700 });
+  if (platform === 'darwin') return launchMac(script);
+  if (platform === 'win32') return launchWindows(script, cmd.cwd, terminalApp);
+  return launchLinux(script, terminalApp);
+}
 
-  if (platform === 'darwin') {
-    const command = `bash ${posixQuote(script)}`;
-    detached('osascript', ['-e', `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(command)}\nend tell`]);
-    return 'Terminal.app';
+function launchMac(script: string): string {
+  const command = `bash ${posixQuote(script)}`;
+  detached('osascript', ['-e', `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(command)}\nend tell`]);
+  return 'Terminal.app';
+}
+
+function launchWindows(script: string, cwd: string, terminalApp: string): string {
+  const shell = resolveExecutable('pwsh') ? 'pwsh' : 'powershell';
+  const shellArgs = ['-NoExit', '-ExecutionPolicy', 'Bypass', '-File', script];
+  if (terminalApp || resolveExecutable('wt')) {
+    detached(terminalApp || 'wt', ['-w', '0', 'nt', '--title', 'dev-in-situ', '-d', cwd, shell, ...shellArgs]);
+    return 'Windows Terminal';
   }
-  if (platform === 'win32') {
-    const shell = resolveExecutable('pwsh') ? 'pwsh' : 'powershell';
-    const shellArgs = ['-NoExit', '-ExecutionPolicy', 'Bypass', '-File', script];
-    if (terminalApp || resolveExecutable('wt')) {
-      detached(terminalApp || 'wt', ['-w', '0', 'nt', '--title', 'dev-in-situ', '-d', cmd.cwd, shell, ...shellArgs]);
-      return 'Windows Terminal';
-    }
-    detached('cmd.exe', ['/c', 'start', 'dev-in-situ', shell, ...shellArgs]);
-    return shell;
-  }
-  const candidates: Array<[string, (s: string) => string[]]> = terminalApp
-    ? [[terminalApp, (s) => ['-e', 'bash', s]], ...LINUX_TERMINALS]
-    : LINUX_TERMINALS;
+  detached('cmd.exe', ['/c', 'start', 'dev-in-situ', shell, ...shellArgs]);
+  return shell;
+}
+
+function launchLinux(script: string, terminalApp: string): string {
+  const candidates: TerminalLauncher[] = terminalApp ? [[terminalApp, (s) => ['-e', 'bash', s]], ...LINUX_TERMINALS] : LINUX_TERMINALS;
   for (const [bin, args] of candidates) {
     if (resolveExecutable(bin)) {
       detached(bin, args(script));

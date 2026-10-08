@@ -1,10 +1,10 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { type RunMode, buildArgs, expandEnv, interpretLine, resolveAgent } from './agents.js';
+import { type AgentSpec, type RunMode, buildArgs, expandEnv, interpretLine, resolveAgent } from './agents.js';
 import { ALLOWED_HOSTS, CONFIG_FILE, type Config, NAME, TOKEN_FILE, VERSION, saveConfig, validateConfig } from './config.js';
 import { RunLog } from './events.js';
-import { buildPrompt } from './prompt.js';
-import { openTerminal, resolveExecutable, runProcess } from './runner.js';
+import { type ComponentInfo, buildPrompt } from './prompt.js';
+import { type Command, type RunResult, openTerminal, resolveExecutable, runProcess } from './runner.js';
 import { type Scope, Store, sessionKey } from './store.js';
 import { ChangeWatcher, checkWorkspace, listDirs } from './workspace.js';
 
@@ -12,7 +12,7 @@ export interface DispatchTarget {
   selector: string;
   elementKey: string | null;
   html: string;
-  component: { name?: string | null; file?: string | null; line?: number | null } | null;
+  component: ComponentInfo | null;
 }
 
 export interface DispatchBody {
@@ -27,7 +27,7 @@ export interface DispatchBody {
   html: string;
   instruction: string;
   workspacePath: string;
-  component: { name?: string | null; file?: string | null; line?: number | null } | null;
+  component: ComponentInfo | null;
   stack: string[] | null;
   model: string | null;
   bypass: boolean;
@@ -50,13 +50,8 @@ const EXTENSION_ORIGIN = /^(chrome|moz|safari-web)-extension:\/\/[a-z0-9-]+$/i;
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const SCOPES: Scope[] = ['page', 'element', 'new'];
 
-function parseTarget(value: unknown): DispatchTarget | null {
-  const t = (value ?? {}) as Record<string, unknown>;
-  const selector = text(t.selector, 2000);
-  if (!selector) return null;
-  const component = t.component && typeof t.component === 'object' ? (t.component as DispatchTarget['component']) : null;
-  return { selector, elementKey: text(t.elementKey, 2000) || null, html: text(t.html, 50_000), component };
-}
+const text = (v: unknown, max = 100_000): string => (typeof v === 'string' ? v.slice(0, max) : '');
+const parseScope = (v: unknown): Scope => (SCOPES.includes(v as Scope) ? (v as Scope) : 'element');
 
 function safeEqual(a: string, b: string): boolean {
   const x = Buffer.from(a);
@@ -64,14 +59,12 @@ function safeEqual(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-const text = (v: unknown, max = 100_000): string => (typeof v === 'string' ? v.slice(0, max) : '');
-
 export function parseDispatch(body: unknown, config: Config): DispatchBody {
   const b = (body ?? {}) as Record<string, unknown>;
   const agent = text(b.agent) || config.defaultAgent;
   if (!config.agents[agent]) throw new Error(`Unknown agent "${agent}". Add it to ${CONFIG_FILE}.`);
   const mode = b.mode === 'terminal' ? 'terminal' : 'background';
-  const scope = SCOPES.includes(b.scope as Scope) ? (b.scope as Scope) : 'element';
+  const scope = parseScope(b.scope);
   const instruction = text(b.instruction, 20_000).trim();
   if (!instruction) throw new Error('Write an instruction first.');
   for (const key of ['origin', 'url', 'workspacePath'] as const) {
@@ -101,6 +94,14 @@ export function parseDispatch(body: unknown, config: Config): DispatchBody {
     followUp: b.followUp === true,
     targets,
   };
+}
+
+function parseTarget(value: unknown): DispatchTarget | null {
+  const t = (value ?? {}) as Record<string, unknown>;
+  const selector = text(t.selector, 2000);
+  if (!selector) return null;
+  const component = t.component && typeof t.component === 'object' ? (t.component as ComponentInfo) : null;
+  return { selector, elementKey: text(t.elementKey, 2000) || null, html: text(t.html, 50_000), component };
 }
 
 export function createServer(deps: ServerDeps) {
@@ -185,7 +186,7 @@ export function createServer(deps: ServerDeps) {
   app.get('/session', (req, res) => {
     const q = req.query as Record<string, string>;
     const agent = q.agent || config.defaultAgent;
-    const scope = SCOPES.includes(q.scope as Scope) ? (q.scope as Scope) : 'element';
+    const scope = parseScope(q.scope);
     const key = sessionKey({ origin: q.origin ?? '', pathname: q.pathname ?? '/', scope, elementKey: q.elementKey ?? null });
     res.json({ sessionKey: key, session: scope === 'new' ? null : store.session(agent, key) });
   });
@@ -206,7 +207,7 @@ export function createServer(deps: ServerDeps) {
     if (!check.ok) return void res.status(400).json({ error: check.error });
     body.workspacePath = check.path;
     store.rememberProject(body.origin, body.workspacePath);
-    const key = body.sessionKey ?? sessionKey({ ...body, scope: body.scope });
+    const key = body.sessionKey ?? sessionKey(body);
     const id = randomUUID();
     log.open(id);
     const previous = queues.get(key) ?? Promise.resolve();
@@ -249,7 +250,6 @@ export function createServer(deps: ServerDeps) {
   });
 
   async function execute(id: string, key: string, body: DispatchBody): Promise<void> {
-    const emit = log.emit.bind(log, id);
     const spec = resolveAgent(config.agents[body.agent] ?? {});
     const existing = body.scope === 'new' && !body.followUp ? null : store.session(body.agent, key);
     const session = spec.resumeFlag.length ? (existing?.session ?? null) : null;
@@ -265,22 +265,28 @@ export function createServer(deps: ServerDeps) {
       bypass: body.bypass,
       timeoutSeconds: config.timeoutMinutes * 60,
     });
-    const cmd = { file: spec.command, args, cwd: body.workspacePath, env: expandEnv(spec.env) };
-    emit('prompt', prompt);
+    const run: Run = { id, key, body, spec, session, newSession, cmd: { file: spec.command, args, cwd: body.workspacePath, env: expandEnv(spec.env) } };
+    log.emit(id, 'prompt', prompt);
+    if (body.mode === 'terminal') await runInTerminal(run, args.indexOf(prompt));
+    else await runInBackground(run);
+  }
 
-    if (body.mode === 'terminal') {
-      try {
-        const via = await openTerminal(id, cmd, args.indexOf(prompt), config.terminal);
-        if (session || newSession) store.saveSession(body.agent, key, (session ?? newSession)!, body.workspacePath);
-        emit('status', `Opened ${body.agent} in ${via}`);
-        emit('done', 'Continue in the terminal window.', { exitCode: 0, session: session ?? newSession });
-      } catch (err) {
-        emit('error', (err as Error).message);
-        emit('done', 'Failed', { exitCode: null });
-      }
-      return;
+  async function runInTerminal({ id, key, body, session, newSession, cmd }: Run, promptIndex: number): Promise<void> {
+    const emit = log.emit.bind(log, id);
+    const chosen = session ?? newSession;
+    try {
+      const via = await openTerminal(id, cmd, promptIndex, config.terminal);
+      if (chosen) store.saveSession(body.agent, key, chosen, body.workspacePath);
+      emit('status', `Opened ${body.agent} in ${via}`);
+      emit('done', 'Continue in the terminal window.', { exitCode: 0, session: chosen });
+    } catch (err) {
+      emit('error', (err as Error).message);
+      emit('done', 'Failed', { exitCode: null });
     }
+  }
 
+  async function runInBackground({ id, key, body, spec, session, newSession, cmd }: Run): Promise<void> {
+    const emit = log.emit.bind(log, id);
     const controller = new AbortController();
     running.set(id, controller);
     let learned = session ?? newSession;
@@ -313,12 +319,28 @@ export function createServer(deps: ServerDeps) {
     if (pending) handleLine(pending);
     running.delete(id);
     if (learned && (result.exitCode === 0 || learned !== session)) store.saveSession(body.agent, key, learned, body.workspacePath);
-    if (result.error) emit('error', result.error);
-    else if (result.timedOut) emit('error', `Stopped after ${config.timeoutMinutes} minutes.`);
-    else if (controller.signal.aborted) emit('error', 'Cancelled.');
-    else if (result.exitCode !== 0) emit('error', `${spec.command} exited with code ${result.exitCode}.`);
+    const failure = describeFailure(result, controller.signal.aborted, spec.command, config.timeoutMinutes);
+    if (failure) emit('error', failure);
     emit('done', result.exitCode === 0 ? 'Finished' : 'Failed', { exitCode: result.exitCode, session: learned });
   }
 
   return { app, close: () => watcher.close() };
+}
+
+interface Run {
+  id: string;
+  key: string;
+  body: DispatchBody;
+  spec: AgentSpec;
+  session: string | null;
+  newSession: string | null;
+  cmd: Command;
+}
+
+function describeFailure(result: RunResult, aborted: boolean, command: string, timeoutMinutes: number): string | null {
+  if (result.error) return result.error;
+  if (result.timedOut) return `Stopped after ${timeoutMinutes} minutes.`;
+  if (aborted) return 'Cancelled.';
+  if (result.exitCode !== 0) return `${command} exited with code ${result.exitCode}.`;
+  return null;
 }
