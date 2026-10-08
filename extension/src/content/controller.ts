@@ -1,6 +1,6 @@
 import { type ComponentHint, DEFAULT_SETTINGS, type PageInfo, type Settings, type Target } from '../shared/types.js';
 import { RefreshWatcher } from './refresh.js';
-import { buildSelector, elementKey, targetHtml } from './selector.js';
+import { buildSelector, elementKey, findBySelector, targetHtml } from './selector.js';
 import { detectTheme } from './theme.js';
 import { Highlighter } from './ui/highlighter.js';
 import { type Bridge, Panel, type Snapshot } from './ui/panel.js';
@@ -20,6 +20,15 @@ export interface ControllerDeps {
 
 /** The most elements one chat can be about; the daemon accepts the same number. */
 export const MAX_SELECTION = 20;
+
+const RELEASE_GRACE_MS = 600;
+/** A scroll this soon after a wheel, touch or key press is the user's own. */
+const USER_SCROLL_WINDOW_MS = 500;
+const THEME_DEBOUNCE_MS = 150;
+/** Lets the page's framework boot before checking whether it hot-reloads by itself. */
+const REFRESH_START_DELAY_MS = 1500;
+const THEME_ATTRIBUTES = ['class', 'style', 'data-theme', 'data-mode', 'data-color-mode', 'data-bs-theme'];
+const SCROLL_KEYS = new Set(['PageDown', 'PageUp', 'ArrowDown', 'ArrowUp', ' ', 'Home', 'End']);
 
 const isModifier = (key: string) => key === 'Control' || key === 'Meta';
 const isMac = () => /mac/i.test(navigator.platform);
@@ -87,16 +96,16 @@ export class Controller {
       this.themeTimer = setTimeout(() => {
         this.themeTimer = null;
         this.applyTheme();
-      }, 150);
+      }, THEME_DEBOUNCE_MS);
     });
-    const options = { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-mode', 'data-color-mode', 'data-bs-theme'] };
+    const options = { attributes: true, attributeFilter: THEME_ATTRIBUTES };
     this.observer.observe(document.documentElement, options);
     if (document.body) this.observer.observe(document.body, options);
   }
 
   async init(): Promise<void> {
     this.settings = await this.deps.loadSettings().catch(() => null);
-    setTimeout(() => this.syncRefresh(), 1500);
+    setTimeout(() => this.syncRefresh(), REFRESH_START_DELAY_MS);
     await this.restore();
   }
 
@@ -128,13 +137,17 @@ export class Controller {
 
   toggle(): void {
     if (this.picking) return this.cancelPicking();
-    this.startPicking(false);
+    this.startPicking([]);
   }
 
-  /** Starts picking. With `add`, the current selection is kept and new clicks extend it. */
-  startPicking(add: boolean): void {
+  /** Starts picking on top of the current selection, so new clicks extend it. */
+  pickMore(): void {
+    this.startPicking([...this.group]);
+  }
+
+  private startPicking(initial: Element[]): void {
     if (this.picking) return;
-    this.pending = add ? [...this.group] : [];
+    this.pending = initial;
     this.multi = false;
     this.wasMinimized = this.panel?.minimized ?? false;
     this.picking = true;
@@ -178,8 +191,7 @@ export class Controller {
       return this.setMarks([]);
     }
     panel.setMinimized(false);
-    this.resolveGroup();
-    this.setMarks(this.group);
+    this.markGroup();
   }
 
   private clearFinishTimer(): void {
@@ -269,7 +281,7 @@ export class Controller {
       () => {
         // A user scroll right after letting go of Ctrl/⌘ means they are looking for more elements.
         // Scrolls the page makes on its own (carousels, animations) don't count.
-        if (Date.now() - this.userScrollAt < 500) this.clearFinishTimer();
+        if (Date.now() - this.userScrollAt < USER_SCROLL_WINDOW_MS) this.clearFinishTimer();
         this.scheduleHover();
       },
     ],
@@ -323,7 +335,7 @@ export class Controller {
       'keydown',
       (e) => {
         const k = e as KeyboardEvent;
-        if (['PageDown', 'PageUp', 'ArrowDown', 'ArrowUp', ' ', 'Home', 'End'].includes(k.key)) this.userScrollAt = Date.now();
+        if (SCROLL_KEYS.has(k.key)) this.userScrollAt = Date.now();
         if (isModifier(k.key)) this.clearFinishTimer();
         if (k.key === 'Escape') {
           k.preventDefault();
@@ -342,7 +354,7 @@ export class Controller {
         const k = e as KeyboardEvent;
         if (!isModifier(k.key) || !this.multi || !this.pending.length) return;
         this.clearFinishTimer();
-        this.finishTimer = setTimeout(() => void this.finishPicking(), this.deps.releaseGraceMs ?? 600);
+        this.finishTimer = setTimeout(() => void this.finishPicking(), this.deps.releaseGraceMs ?? RELEASE_GRACE_MS);
       },
     ],
   ];
@@ -381,19 +393,13 @@ export class Controller {
     };
   }
 
-  /** Swaps elements the page re-rendered for their current copies, found by selector. */
-  private resolveGroup(): void {
+  /** Outlines the selection, first swapping elements the page re-rendered for their current copies. */
+  private markGroup(): void {
     const targets = this.panel?.selection ?? [];
     this.group = this.group
-      .map((el, i) => {
-        if (el.isConnected) return el;
-        try {
-          return targets[i] ? document.querySelector(targets[i].selector) : null;
-        } catch {
-          return null;
-        }
-      })
+      .map((el, i) => (el.isConnected ? el : targets[i] ? findBySelector(targets[i].selector) : null))
       .filter((el): el is Element => el !== null);
+    this.setMarks(this.group);
   }
 
   private async showPanel(): Promise<Panel> {
@@ -426,21 +432,19 @@ export class Controller {
         this.group = [];
         this.setMarks([]);
       },
-      onPick: () => this.startPicking(true),
+      onPick: () => this.pickMore(),
       onMinimize: (_p, minimized) => {
         if (this.picking) {
           // Opening the bar from its pill while picking abandons the pick.
           if (!minimized) {
             this.pending = [];
             this.stopPicking();
-            this.resolveGroup();
-            this.setMarks(this.group);
+            this.markGroup();
           }
           return;
         }
         if (minimized) return this.setMarks([]);
-        this.resolveGroup();
-        this.setMarks(this.group);
+        this.markGroup();
       },
       onRemoveTarget: (p, index) => {
         this.group.splice(index, 1);
@@ -466,15 +470,7 @@ export class Controller {
     } catch {}
     const snapshot = snapshots[0];
     if (!snapshot || !Array.isArray(snapshot.selectors)) return;
-    this.group = snapshot.selectors
-      .map((selector) => {
-        try {
-          return document.querySelector(selector);
-        } catch {
-          return null;
-        }
-      })
-      .filter((el): el is Element => el !== null);
+    this.group = snapshot.selectors.map((selector) => findBySelector(selector)).filter((el): el is Element => el !== null);
     if (!this.group.length) this.group = [document.body];
     const panel = await this.showPanel();
     panel.restore(snapshot);

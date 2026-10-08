@@ -1,4 +1,5 @@
 import css from './panel.css?raw';
+import { findBySelector } from '../selector.js';
 import { applyHostBarrier } from './host-barrier.js';
 import type { ToastAction, ToastKind } from './toaster.js';
 import type {
@@ -288,11 +289,6 @@ export class Panel {
     if (this.config && groupKey(this.targets) !== before) void this.checkSession();
   }
 
-  setPage(page: PageInfo | null): void {
-    this.page = page;
-    this.renderStack();
-  }
-
   setTheme(theme: Theme): void {
     this.$('bar').dataset.theme = theme;
     this.host.style.setProperty('color-scheme', theme, 'important');
@@ -444,13 +440,7 @@ export class Panel {
     if (!this.targets.length) return 'Select an element first';
     if (!path) return 'Choose the project folder';
     if (!ABSOLUTE.test(path)) return 'Project folder must be an absolute path';
-    const missing = this.targets.some((t) => {
-      try {
-        return !document.querySelector(t.selector);
-      } catch {
-        return true;
-      }
-    });
+    const missing = this.targets.some((t) => !findBySelector(t.selector));
     return missing ? 'A selected element is no longer on the page' : '';
   }
 

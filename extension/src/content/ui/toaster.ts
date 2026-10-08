@@ -92,10 +92,4 @@ export class Toaster {
   toasts(): HTMLElement[] {
     return this.stack ? Array.from(this.stack.children as HTMLCollectionOf<HTMLElement>) : [];
   }
-
-  destroy(): void {
-    this.host?.remove();
-    this.host = null;
-    this.stack = null;
-  }
 }

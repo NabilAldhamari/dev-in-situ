@@ -1,9 +1,10 @@
 import { loadSettings, request, saveSettings } from '../shared/daemon.js';
-import type { ConfigResponse, Settings } from '../shared/types.js';
+import { type ConfigResponse, DEFAULT_SETTINGS, type Settings } from '../shared/types.js';
 
 const $ = <T extends HTMLElement = HTMLInputElement>(id: string) => document.getElementById(id) as T;
 const FIELDS = ['daemonUrl', 'token', 'agent', 'mode', 'scope', 'refresh', 'refreshSeconds', 'theme'] as const;
 const CHECKS = ['bypass', 'docked', 'collapseOnSend', 'notify'] as const;
+const MAX_REFRESH_SECONDS = 60;
 
 function say(id: string, text: string, ok: boolean): void {
   const el = $(id);
@@ -65,9 +66,9 @@ async function init(): Promise<void> {
 }
 
 async function save(): Promise<Settings> {
-  const seconds = Math.min(60, Math.max(1, Number($('refreshSeconds').value) || 2));
+  const seconds = Math.min(MAX_REFRESH_SECONDS, Math.max(1, Number($('refreshSeconds').value) || DEFAULT_SETTINGS.refreshSeconds));
   return saveSettings({
-    daemonUrl: $('daemonUrl').value.trim() || 'http://127.0.0.1:4141',
+    daemonUrl: $('daemonUrl').value.trim() || DEFAULT_SETTINGS.daemonUrl,
     token: $('token').value.trim(),
     agent: $<HTMLSelectElement>('agent').value,
     mode: $<HTMLSelectElement>('mode').value as Settings['mode'],

@@ -28,14 +28,8 @@ export interface Listing {
 const PROJECT_MARKERS = ['package.json', '.git', 'index.html', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'composer.json', 'Gemfile'];
 
 export function listDirs(input: string | undefined): Listing {
-  if (!input) {
-    if (process.platform === 'win32') {
-      const drives = 'CDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((d) => `${d}:\\`).filter((d) => fs.existsSync(d));
-      return { path: '', parent: null, dirs: [os.homedir(), ...drives], isProject: false };
-    }
-    input = os.homedir();
-  }
-  const dir = path.resolve(input);
+  if (!input && process.platform === 'win32') return listDrives();
+  const dir = path.resolve(input || os.homedir());
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   const dirs = entries
     .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
@@ -51,8 +45,15 @@ export function listDirs(input: string | undefined): Listing {
   };
 }
 
+/** Windows has no single root, so the top level lists home and every drive that exists. */
+function listDrives(): Listing {
+  const drives = 'CDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((d) => `${d}:\\`).filter((d) => fs.existsSync(d));
+  return { path: '', parent: null, dirs: [os.homedir(), ...drives], isProject: false };
+}
+
 const IGNORED = /(^|[\\/])(\.git|node_modules|\.next|\.nuxt|\.svelte-kit|\.cache|\.turbo|\.idea|\.vscode)([\\/]|$)/;
 const IDLE_MS = 10 * 60 * 1000;
+const SWEEP_MS = 60 * 1000;
 
 interface Watch {
   stamp: number;
@@ -62,7 +63,7 @@ interface Watch {
 
 export class ChangeWatcher {
   private readonly watches = new Map<string, Watch>();
-  private readonly sweeper = setInterval(() => this.sweep(), 60_000);
+  private readonly sweeper = setInterval(() => this.sweep(), SWEEP_MS);
 
   constructor() {
     this.sweeper.unref();
@@ -75,13 +76,12 @@ export class ChangeWatcher {
       return existing.stamp;
     }
     try {
-      const entry: Watch = { stamp: 0, used: Date.now(), watcher: null as unknown as fs.FSWatcher };
-      entry.watcher = fs.watch(dir, { recursive: true }, (_event, file) => {
-        if (file && IGNORED.test(String(file))) return;
-        entry.stamp = Date.now();
+      const watcher = fs.watch(dir, { recursive: true }, (_event, file) => {
+        const entry = this.watches.get(dir);
+        if (entry && !(file && IGNORED.test(String(file)))) entry.stamp = Date.now();
       });
-      entry.watcher.on('error', () => this.close(dir));
-      this.watches.set(dir, entry);
+      watcher.on('error', () => this.close(dir));
+      this.watches.set(dir, { stamp: 0, used: Date.now(), watcher });
       return 0;
     } catch {
       return null;
